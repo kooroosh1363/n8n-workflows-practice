@@ -20,7 +20,15 @@ This workflow receives customer information via Webhook, stores it in Google She
 
 
 
-\## 🚀 How to Use
+\## 📸 Workflow Diagram
+
+
+
+!\[Workflow Diagram](screenshots/workflow-diagram.png)
+
+
+
+\##  How to Use
 
 1\. Import `workflow.json` file in n8n
 
@@ -32,7 +40,23 @@ This workflow receives customer information via Webhook, stores it in Google She
 
 
 
-\## 📸 Screenshots
+\## 📋 Example Request
 
-(Coming soon)
+```bash
+
+curl -X POST https://your-n8n.com/webhook/lead-capture \\
+
+&#x20; -H "Content-Type: application/json" \\
+
+&#x20; -d '{
+
+&#x20;   "name": "John Doe",
+
+&#x20;   "email": "john@example.com",
+
+&#x20;   "phone": "1234567890",
+
+&#x20;   "message": "Hello, I need help!"
+
+&#x20; }'
 
