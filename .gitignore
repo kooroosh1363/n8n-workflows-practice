@@ -1,0 +1,19 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# n8n credentials (IMPORTANT - never commit secrets)
+credentials.json
+*.credentials
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+*.tmp
+*.bak
