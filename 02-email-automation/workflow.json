@@ -1,0 +1,178 @@
+{
+  "name": "Email Automation - Daily Order Processing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "e1f2a3b4-1111-2222-3333-444455556666",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Orders",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "f2a3b4c5-2222-3333-4444-555566667777",
+      "name": "Get Orders from Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.status }}",
+              "value2": "Pending"
+            }
+          ]
+        }
+      },
+      "id": "a3b4c5d6-3333-4444-5555-666677778888",
+      "name": "Filter Pending Orders",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "your-email@gmail.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "=Order Confirmation #{{ $json.order_id }}",
+        "emailType": "text",
+        "message": "=Hello {{ $json.customer_name }},\n\nYour order #{{ $json.order_id }} has been confirmed!\n\nOrder Details:\n- Product: {{ $json.product }}\n- Quantity: {{ $json.quantity }}\n- Total: ${{ $json.total }}\n\nThank you for your purchase!",
+        "options": {}
+      },
+      "id": "b4c5d6e7-4444-5555-6666-777788889999",
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Orders",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "Sent"
+          },
+          "matchingColumns": ["order_id"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "c5d6e7f8-5555-6666-7777-888899990000",
+      "name": "Update Order Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=📊 Daily Order Report\n\n✅ {{ $json.length }} orders processed\n📧 Confirmation emails sent\n\nTime: {{ $now.toFormat('yyyy-MM-dd HH:mm') }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "d6e7f8a9-6666-7777-8888-999900001111",
+      "name": "Send Report to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1400, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Orders from Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Orders from Sheets": {
+      "main": [
+        [
+          {
+            "node": "Filter Pending Orders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Pending Orders": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Update Order Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Order Status": {
+      "main": [
+        [
+          {
+            "node": "Send Report to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
