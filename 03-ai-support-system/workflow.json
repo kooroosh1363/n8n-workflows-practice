@@ -1,0 +1,211 @@
+{
+  "name": "AI Support System - Smart Ticket Routing",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-2222-3333-444455556666",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this support ticket and return JSON with category (technical, billing, general) and priority (urgent, normal, low):\n\nTicket: {{ $json.message }}\n\nReturn only JSON like: {\"category\": \"technical\", \"priority\": \"urgent\"}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "b2c3d4e5-2222-3333-4444-555566667777",
+      "name": "AI Ticket Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).priority }}",
+              "value2": "urgent"
+            }
+          ]
+        }
+      },
+      "id": "c3d4e5f6-3333-4444-5555-666677778888",
+      "name": "Check Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#urgent-support",
+        "text": "= URGENT TICKET\n\nCustomer: {{ $('Webhook').item.json.customer_name }}\nEmail: {{ $('Webhook').item.json.customer_email }}\nIssue: {{ $('Webhook').item.json.message }}\nCategory: {{ JSON.parse($('AI Ticket Analysis').item.json.message.content).category }}",
+        "otherOptions": {}
+      },
+      "id": "d4e5f6a7-4444-5555-6666-777788889999",
+      "name": "Slack Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "support@yourcompany.com",
+        "toEmail": "={{ $('Webhook').item.json.customer_email }}",
+        "subject": "=Ticket Received - {{ JSON.parse($('AI Ticket Analysis').item.json.message.content).category }}",
+        "emailType": "text",
+        "message": "=Hello {{ $('Webhook').item.json.customer_name }},\n\nWe received your support ticket and our team is working on it.\n\nTicket ID: {{ $('Webhook').item.json.ticket_id }}\nCategory: {{ JSON.parse($('AI Ticket Analysis').item.json.message.content).category }}\n\nWe'll respond within 24 hours.\n\nBest regards,\nSupport Team",
+        "options": {}
+      },
+      "id": "e5f6a7b8-5555-6666-7777-888899990000",
+      "name": "Send Email Response",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 400]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tickets",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $('Webhook').item.json.ticket_id }}",
+            "customer_name": "={{ $('Webhook').item.json.customer_name }}",
+            "customer_email": "={{ $('Webhook').item.json.customer_email }}",
+            "message": "={{ $('Webhook').item.json.message }}",
+            "category": "={{ JSON.parse($('AI Ticket Analysis').item.json.message.content).category }}",
+            "priority": "={{ JSON.parse($('AI Ticket Analysis').item.json.message.content).priority }}",
+            "status": "Open",
+            "created_at": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "f6a7b8c9-6666-7777-8888-999900001111",
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"success\", \"message\": \"Ticket received and routed\", \"ticket_id\": \"{{ $('Webhook').item.json.ticket_id }}\", \"category\": \"{{ JSON.parse($('AI Ticket Analysis').item.json.message.content).category }}\", \"priority\": \"{{ JSON.parse($('AI Ticket Analysis').item.json.message.content).priority }}\"}",
+        "options": {}
+      },
+      "id": "a7b8c9d0-7777-8888-9999-000011112222",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1400, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Ticket Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Ticket Analysis": {
+      "main": [
+        [
+          {
+            "node": "Check Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Priority": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Email Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Alert": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Response": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Database": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
