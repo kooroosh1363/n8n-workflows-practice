@@ -1,0 +1,254 @@
+{
+  "name": "Price Monitoring - Competitor Tracking with AI",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "p1q2r3s4-1111-2222-3333-444455556666",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://example-competitor.com/products",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "id": "q2r3s4t5-2222-3333-4444-555566667777",
+      "name": "Scrape Competitor Prices",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "PriceHistory",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "r3s4t5u6-3333-4444-5555-666677778888",
+      "name": "Get Price History",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze these competitor price changes and provide insights:\n\nCurrent Prices: {{ JSON.stringify($json.current_prices) }}\nPrevious Prices: {{ JSON.stringify($json.previous_prices) }}\n\nReturn JSON with:\n- significant_changes (array of products with >10% change)\n- insights (summary string)\n- recommendation (action string)"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "s4t5u6v7-4444-5555-6666-777788889999",
+      "name": "AI Price Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).significant_changes.length }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "t5u6v7w8-5555-6666-7777-888899990000",
+      "name": "Check Significant Changes",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=⚠️ Price Alert!\n\nSignificant competitor price changes detected:\n\n{{ JSON.parse($('AI Price Analysis').item.json.message.content).significant_changes.map(c => `• ${c.product}: ${c.old_price} → ${c.new_price} (${c.change_percent}%)`).join('\n') }}\n\n📊 Insights: {{ JSON.parse($('AI Price Analysis').item.json.message.content).insights }}\n\n💡 Recommendation: {{ JSON.parse($('AI Price Analysis').item.json.message.content).recommendation }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "u6v7w8x9-6666-7777-8888-999900001111",
+      "name": "Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "alerts@yourcompany.com",
+        "toEmail": "manager@yourcompany.com",
+        "subject": "=⚠️ Competitor Price Alert - {{ $now.toFormat('yyyy-MM-dd') }}",
+        "emailType": "text",
+        "message": "=Significant competitor price changes detected today.\n\nAnalysis: {{ JSON.parse($('AI Price Analysis').item.json.message.content).insights }}\n\nRecommendation: {{ JSON.parse($('AI Price Analysis').item.json.message.content).recommendation }}",
+        "options": {}
+      },
+      "id": "v7w8x9y0-7777-8888-9999-000011112222",
+      "name": "Email Alert",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "PriceHistory",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $now.toISO() }}",
+            "prices": "={{ JSON.stringify($('Scrape Competitor Prices').item.json) }}",
+            "analysis": "={{ $('AI Price Analysis').item.json.message.content }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "w8x9y0z1-8888-9999-0000-111122223333",
+      "name": "Save to History",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1630, 300]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Scrape Competitor Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Competitor Prices": {
+      "main": [
+        [
+          {
+            "node": "Get Price History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Price History": {
+      "main": [
+        [
+          {
+            "node": "AI Price Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Price Analysis": {
+      "main": [
+        [
+          {
+            "node": "Check Significant Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Significant Changes": {
+      "main": [
+        [
+          {
+            "node": "Telegram Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Email Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save to History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Alert": {
+      "main": [
+        [
+          {
+            "node": "Save to History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Alert": {
+      "main": [
+        [
+          {
+            "node": "Save to History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
