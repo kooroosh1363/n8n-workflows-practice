@@ -1,0 +1,302 @@
+{
+  "name": "Content Automation - AI-Powered Multi-Channel Publishing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "ca1b2c3d-1111-2222-3333-444455556666",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://news.ycombinator.com",
+        "options": {}
+      },
+      "id": "cb2c3d4e-2222-3333-4444-555566667777",
+      "name": "Scrape Tech News",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Based on these tech news headlines, write a 500-word blog post:\n\n{{ $json.data }}\n\nInclude: Introduction, 3 main points, and conclusion."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "cc3d4e5f-3333-4444-5555-666677778888",
+      "name": "Generate Blog Post",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Summarize this blog post in 280 characters for Twitter:\n\n{{ $('Generate Blog Post').item.json.message.content }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.5
+        }
+      },
+      "id": "cd4e5f6a-4444-5555-6666-777788889999",
+      "name": "Create Twitter Summary",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Create a professional LinkedIn post from this blog post:\n\n{{ $('Generate Blog Post').item.json.message.content }}\n\nMake it engaging and professional."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.6
+        }
+      },
+      "id": "ce5f6a7b-5555-6666-7777-888899990000",
+      "name": "Create LinkedIn Post",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [940, 400]
+    },
+    {
+      "parameters": {
+        "resource": "post",
+        "title": "=Tech Insights: {{ $now.toFormat('yyyy-MM-dd') }}",
+        "content": "={{ $('Generate Blog Post').item.json.message.content }}",
+        "status": "draft",
+        "additionalFields": {}
+      },
+      "id": "cf6a7b8c-6666-7777-8888-999900001111",
+      "name": "Publish to WordPress",
+      "type": "n8n-nodes-base.wordpress",
+      "typeVersion": 1,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "text": "={{ $('Create Twitter Summary').item.json.message.content }}\n\n#TechNews #AI #Innovation",
+        "additionalFields": {}
+      },
+      "id": "ca7b8c9d-7777-8888-9999-000011112222",
+      "name": "Post to Twitter",
+      "type": "n8n-nodes-base.twitter",
+      "typeVersion": 2,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "text": "={{ $('Create LinkedIn Post').item.json.message.content }}",
+        "additionalFields": {}
+      },
+      "id": "cb8c9d0e-8888-9999-0000-111122223333",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.linkedin",
+      "typeVersion": 1,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ContentLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "date": "={{ $now.toISO() }}",
+            "topic": "={{ $('Scrape Tech News').item.json.data.substring(0, 100) }}",
+            "blog_status": "Published",
+            "twitter_status": "Posted",
+            "linkedin_status": "Posted"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "cc9d0e1f-9999-0000-1111-222233334444",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1630, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "content@yourcompany.com",
+        "toEmail": "manager@yourcompany.com",
+        "subject": "=Content Published - {{ $now.toFormat('yyyy-MM-dd') }}",
+        "emailType": "text",
+        "message": "=Daily content has been published successfully!\n\nBlog: WordPress (Draft)\nTwitter: Posted\nLinkedIn: Posted\n\nTopic: {{ $('Scrape Tech News').item.json.data.substring(0, 100) }}",
+        "options": {}
+      },
+      "id": "cd0e1f2a-0000-1111-2222-333344445555",
+      "name": "Send Report Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1860, 300]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Scrape Tech News",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Tech News": {
+      "main": [
+        [
+          {
+            "node": "Generate Blog Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Blog Post": {
+      "main": [
+        [
+          {
+            "node": "Create Twitter Summary",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Create LinkedIn Post",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Publish to WordPress",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Twitter Summary": {
+      "main": [
+        [
+          {
+            "node": "Post to Twitter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create LinkedIn Post": {
+      "main": [
+        [
+          {
+            "node": "Post to LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to WordPress": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Twitter": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Send Report Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
