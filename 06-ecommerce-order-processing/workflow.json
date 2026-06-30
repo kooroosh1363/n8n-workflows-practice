@@ -1,0 +1,382 @@
+{
+  "name": "E-commerce Order Processing with AI Fraud Detection",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-order",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ec1a2b3c-1111-2222-3333-444455556666",
+      "name": "Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.customer_email }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.total_amount }}",
+              "operation": "isNotEmpty"
+            }
+          ],
+          "number": [
+            {
+              "value1": "={{ $json.total_amount }}",
+              "value2": 0,
+              "operation": "larger"
+            }
+          ]
+        }
+      },
+      "id": "ec2b3c4d-2222-3333-4444-555566667777",
+      "name": "Validate Order",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Inventory",
+          "mode": "name"
+        },
+        "filters": {
+          "string": [
+            {
+              "key": "product_id",
+              "value": "={{ $json.product_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ec3c4d5e-3333-4444-5555-666677778888",
+      "name": "Check Inventory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this order for potential fraud. Return JSON with:\n- fraud_score (0-100)\n- risk_level (low, medium, high)\n- flags (array of suspicious indicators)\n- recommendation (approve, review, reject)\n\nOrder: {{ JSON.stringify($json) }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "ec4d5e6f-4444-5555-6666-777788889999",
+      "name": "AI Fraud Detection",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).recommendation }}",
+              "value2": "approve"
+            }
+          ]
+        }
+      },
+      "id": "ec5e6f7a-5555-6666-7777-888899990000",
+      "name": "Check AI Result",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://payment-gateway.example.com/api/charge",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "amount",
+              "value": "={{ $json.total_amount }}"
+            },
+            {
+              "name": "currency",
+              "value": "USD"
+            },
+            {
+              "name": "order_id",
+              "value": "={{ $json.order_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ec6f7a8b-6666-7777-8888-999900001111",
+      "name": "Process Payment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Inventory",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "quantity": "={{ $json.quantity - 1 }}"
+          },
+          "matchingColumns": ["product_id"],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ec7a8b9c-7777-8888-9999-000011112222",
+      "name": "Update Inventory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1630, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "orders@yourstore.com",
+        "toEmail": "={{ $json.customer_email }}",
+        "subject": "=Order Confirmed #{{ $json.order_id }}",
+        "emailType": "text",
+        "message": "=Hello {{ $json.customer_name }},\n\nYour order #{{ $json.order_id }} has been confirmed!\n\nProduct: {{ $json.product_name }}\nQuantity: {{ $json.quantity }}\nTotal: ${{ $json.total_amount }}\n\nEstimated delivery: 3-5 business days.\n\nThank you for shopping with us!",
+        "options": {}
+      },
+      "id": "ec8b9c0d-8888-9999-0000-111122223333",
+      "name": "Send Confirmation Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1860, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=️ SUSPICIOUS ORDER DETECTED\n\nOrder ID: {{ $json.order_id }}\nCustomer: {{ $json.customer_name }}\nEmail: {{ $json.customer_email }}\nAmount: ${{ $json.total_amount }}\n\nAI Analysis:\n- Fraud Score: {{ JSON.parse($('AI Fraud Detection').item.json.message.content).fraud_score }}\n- Risk Level: {{ JSON.parse($('AI Fraud Detection').item.json.message.content).risk_level }}\n- Flags: {{ JSON.parse($('AI Fraud Detection').item.json.message.content).flags.join(', ') }}\n\n⚡ Immediate review required!",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "ec9c0d1e-9999-0000-1111-222233334444",
+      "name": "Alert Security Team",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Orders",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "order_id": "={{ $json.order_id }}",
+            "customer_name": "={{ $json.customer_name }}",
+            "customer_email": "={{ $json.customer_email }}",
+            "product_id": "={{ $json.product_id }}",
+            "product_name": "={{ $json.product_name }}",
+            "quantity": "={{ $json.quantity }}",
+            "total_amount": "={{ $json.total_amount }}",
+            "fraud_score": "={{ JSON.parse($('AI Fraud Detection').item.json.message.content).fraud_score }}",
+            "risk_level": "={{ JSON.parse($('AI Fraud Detection').item.json.message.content).risk_level }}",
+            "status": "={{ $('Check AI Result').item.json ? 'Approved' : 'Under Review' }}",
+            "created_at": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ec0d1e2f-0000-1111-2222-333344445555",
+      "name": "Save to Database",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2090, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"success\", \"order_id\": \"{{ $json.order_id }}\", \"message\": \"Order processed successfully\", \"fraud_score\": \"{{ JSON.parse($('AI Fraud Detection').item.json.message.content).fraud_score }}\", \"risk_level\": \"{{ JSON.parse($('AI Fraud Detection').item.json.message.content).risk_level }}\"}",
+        "options": {}
+      },
+      "id": "ec1e2f3a-1111-2222-3333-444455556666",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2320, 300]
+    }
+  ],
+  "connections": {
+    "Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Order": {
+      "main": [
+        [
+          {
+            "node": "Check Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Inventory": {
+      "main": [
+        [
+          {
+            "node": "AI Fraud Detection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Fraud Detection": {
+      "main": [
+        [
+          {
+            "node": "Check AI Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check AI Result": {
+      "main": [
+        [
+          {
+            "node": "Process Payment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Alert Security Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Payment": {
+      "main": [
+        [
+          {
+            "node": "Update Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Inventory": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Confirmation Email": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Security Team": {
+      "main": [
+        [
+          {
+            "node": "Save to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Database": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
