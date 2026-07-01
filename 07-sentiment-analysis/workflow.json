@@ -1,0 +1,301 @@
+{
+  "name": "Customer Sentiment Analysis with Multi-Source AI",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "feedback",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "sa1a2b3c-1111-2222-3333-444455556666",
+      "name": "Webhook Feedback",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 200]
+    },
+    {
+      "parameters": {
+        "mailbox": "feedback@yourcompany.com",
+        "options": {}
+      },
+      "id": "sa2b3c4d-2222-3333-4444-555566667777",
+      "name": "Email Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [250, 400]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "sa3c4d5e-3333-4444-5555-666677778888",
+      "name": "Social Media Poll",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 600]
+    },
+    {
+      "parameters": {
+        "url": "https://api.twitter.com/2/search/recent",
+        "options": {}
+      },
+      "id": "sa4d5e6f-4444-5555-6666-777788889999",
+      "name": "Fetch Social Comments",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 600]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this customer feedback and return JSON with:\n- sentiment_score (0-100, where 100 is most positive)\n- sentiment_label (positive, negative, neutral)\n- emotion (happy, angry, disappointed, excited, frustrated, neutral)\n- topic (product, support, pricing, delivery, other)\n- urgency_level (low, medium, high, critical)\n- key_issues (array of specific problems mentioned)\n- summary (one-line summary)\n\nFeedback: {{ $json.feedback || $json.body || $json.text }}\n\nReturn only JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "sa5e6f7a-5555-6666-7777-888899990000",
+      "name": "AI Sentiment Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).sentiment_score }}",
+              "value2": 30,
+              "operation": "smaller"
+            }
+          ]
+        }
+      },
+      "id": "sa6f7a8b-6666-7777-8888-999900001111",
+      "name": "Check Negative Sentiment",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [940, 400]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🚨 CRITICAL CUSTOMER FEEDBACK\n\nSentiment: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).sentiment_label }} (Score: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).sentiment_score }})\nEmotion: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).emotion }}\nTopic: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).topic }}\nUrgency: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).urgency_level }}\n\nSummary: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).summary }}\n\nKey Issues: {{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).key_issues.join(', ') }}\n\n⚡ Immediate action required!",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "sa7a8b9c-7777-8888-9999-000011112222",
+      "name": "Alert Manager",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1170, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "support@yourcompany.com",
+        "toEmail": "={{ $json.customer_email || 'unknown@example.com' }}",
+        "subject": "=Thank you for your feedback",
+        "emailType": "text",
+        "message": "=Dear Customer,\n\nThank you for sharing your positive experience with us! We truly appreciate your feedback.\n\nYour input helps us continue to improve our products and services.\n\nBest regards,\nCustomer Experience Team",
+        "options": {}
+      },
+      "id": "sa8b9c0d-8888-9999-0000-111122223333",
+      "name": "Send Thank You Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1170, 600]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "SentimentDashboard",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "source": "={{ $node.name === 'Webhook Feedback' ? 'Web Form' : $node.name === 'Email Trigger' ? 'Email' : 'Social Media' }}",
+            "feedback": "={{ $json.feedback || $json.body || $json.text }}",
+            "sentiment_score": "={{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).sentiment_score }}",
+            "sentiment_label": "={{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).sentiment_label }}",
+            "emotion": "={{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).emotion }}",
+            "topic": "={{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).topic }}",
+            "urgency": "={{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).urgency_level }}",
+            "summary": "={{ JSON.parse($('AI Sentiment Analysis').item.json.message.content).summary }}",
+            "action_taken": "={{ $('Check Negative Sentiment').item.json ? 'Alert Sent' : $('Check Positive Sentiment').item.json ? 'Thank You Sent' : 'Logged Only' }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sa9c0d1e-9999-0000-1111-222233334444",
+      "name": "Save to Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).sentiment_score }}",
+              "value2": 70,
+              "operation": "larger"
+            }
+          ]
+        }
+      },
+      "id": "sa0d1e2f-0000-1111-2222-333344445555",
+      "name": "Check Positive Sentiment",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1170, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Feedback": {
+      "main": [
+        [
+          {
+            "node": "AI Sentiment Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Trigger": {
+      "main": [
+        [
+          {
+            "node": "AI Sentiment Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Social Media Poll": {
+      "main": [
+        [
+          {
+            "node": "Fetch Social Comments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Social Comments": {
+      "main": [
+        [
+          {
+            "node": "AI Sentiment Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Sentiment Analysis": {
+      "main": [
+        [
+          {
+            "node": "Check Negative Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Negative Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Alert Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check Positive Sentiment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Positive Sentiment": {
+      "main": [
+        [
+          {
+            "node": "Send Thank You Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Manager": {
+      "main": [
+        [
+          {
+            "node": "Save to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Thank You Email": {
+      "main": [
+        [
+          {
+            "node": "Save to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
