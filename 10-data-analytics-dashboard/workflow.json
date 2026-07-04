@@ -1,0 +1,340 @@
+{
+  "name": "Data Analytics Dashboard with AI Insights",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "da1a2b3c-1111-2222-3333-444455556666",
+      "name": "Weekly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "SalesData",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "da2b3c4d-2222-3333-4444-555566667777",
+      "name": "Fetch Sales Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 200]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "MarketingData",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "da3c4d5e-3333-4444-555566667777",
+      "name": "Fetch Marketing Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://api.example.com/analytics/metrics",
+        "options": {}
+      },
+      "id": "da4d5e6f-4444-5555-6666-777788889999",
+      "name": "Fetch External Metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Data Processing & KPI Calculation\nconst salesData = $input.first().json;\nconst marketingData = $('Fetch Marketing Data').first().json;\nconst externalMetrics = $('Fetch External Metrics').first().json;\n\n// Calculate KPIs\nconst totalRevenue = salesData.reduce((sum, row) => sum + parseFloat(row.revenue || 0), 0);\nconst totalOrders = salesData.length;\nconst avgOrderValue = totalRevenue / totalOrders;\nconst conversionRate = (marketingData.conversions / marketingData.visitors * 100).toFixed(2);\nconst customerAcquisitionCost = marketingData.spend / marketingData.conversions;\nconst roi = ((totalRevenue - marketingData.spend) / marketingData.spend * 100).toFixed(2);\n\nreturn [{\n  json: {\n    kpis: {\n      total_revenue: totalRevenue,\n      total_orders: totalOrders,\n      avg_order_value: avgOrderValue.toFixed(2),\n      conversion_rate: conversionRate,\n      customer_acquisition_cost: customerAcquisitionCost.toFixed(2),\n      roi: roi,\n      period: 'Weekly'\n    },\n    sales_data: salesData,\n    marketing_data: marketingData,\n    external_metrics: externalMetrics\n  }\n}];"
+      },
+      "id": "da5e6f7a-5555-6666-7777-888899990000",
+      "name": "Calculate KPIs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this business data and provide insights:\n\nKPIs:\n- Total Revenue: ${{ $json.kpis.total_revenue }}\n- Total Orders: {{ $json.kpis.total_orders }}\n- Avg Order Value: ${{ $json.kpis.avg_order_value }}\n- Conversion Rate: {{ $json.kpis.conversion_rate }}%\n- Customer Acquisition Cost: ${{ $json.kpis.customer_acquisition_cost }}\n- ROI: {{ $json.kpis.roi }}%\n\nReturn JSON with:\n- trends (array of 3 key trends detected)\n- anomalies (array of unusual patterns)\n- insights (array of 5 actionable insights)\n- recommendations (array of 3 strategic recommendations)\n- forecast (predicted revenue for next week)\n- risk_level (low, medium, high)\n- executive_summary (2-3 sentence summary)\n\nReturn only JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "da6f7a8b-6666-7777-8888-999900001111",
+      "name": "AI Data Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).risk_level }}",
+              "value2": "high"
+            }
+          ]
+        }
+      },
+      "id": "da7a8b9c-7777-8888-9999-000011112222",
+      "name": "Check Risk Level",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🚨 HIGH RISK ALERT - Weekly Analytics Report\n\nRisk Level: {{ JSON.parse($('AI Data Analysis').item.json.message.content).risk_level }}\n\nExecutive Summary:\n{{ JSON.parse($('AI Data Analysis').item.json.message.content).executive_summary }}\n\nKey Metrics:\n- Revenue: ${{ $('Calculate KPIs').item.json.kpis.total_revenue }}\n- ROI: {{ $('Calculate KPIs').item.json.kpis.roi }}%\n- Conversion Rate: {{ $('Calculate KPIs').item.json.kpis.conversion_rate }}%\n\n⚡ Immediate review required!",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "da8b9c0d-8888-9999-0000-111122223333",
+      "name": "High Risk Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "channel": "#analytics-reports",
+        "text": "=📊 Weekly Analytics Report\n\nPeriod: {{ $('Calculate KPIs').item.json.kpis.period }}\n\nKey Metrics:\n💰 Revenue: ${{ $('Calculate KPIs').item.json.kpis.total_revenue }}\n📦 Orders: {{ $('Calculate KPIs').item.json.kpis.total_orders }}\n Avg Order: ${{ $('Calculate KPIs').item.json.kpis.avg_order_value }}\n Conversion: {{ $('Calculate KPIs').item.json.kpis.conversion_rate }}%\n💸 CAC: ${{ $('Calculate KPIs').item.json.kpis.customer_acquisition_cost }}\n📈 ROI: {{ $('Calculate KPIs').item.json.kpis.roi }}%\n\nRisk Level: {{ JSON.parse($('AI Data Analysis').item.json.message.content).risk_level }}\n\nForecast Next Week: ${{ JSON.parse($('AI Data Analysis').item.json.message.content).forecast }}\n\n📝 Executive Summary:\n{{ JSON.parse($('AI Data Analysis').item.json.message.content).executive_summary }}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "da9c0d1e-9999-0000-1111-222233334444",
+      "name": "Slack Report",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "fromEmail": "analytics@yourcompany.com",
+        "toEmail": "management@yourcompany.com",
+        "subject": "=Weekly Analytics Report - {{ $now.toFormat('yyyy-MM-dd') }}",
+        "emailType": "text",
+        "message": "=Dear Management Team,\n\nPlease find the weekly analytics report below:\n\nKEY METRICS:\n- Total Revenue: ${{ $('Calculate KPIs').item.json.kpis.total_revenue }}\n- Total Orders: {{ $('Calculate KPIs').item.json.kpis.total_orders }}\n- Average Order Value: ${{ $('Calculate KPIs').item.json.kpis.avg_order_value }}\n- Conversion Rate: {{ $('Calculate KPIs').item.json.kpis.conversion_rate }}%\n- Customer Acquisition Cost: ${{ $('Calculate KPIs').item.json.kpis.customer_acquisition_cost }}\n- ROI: {{ $('Calculate KPIs').item.json.kpis.roi }}%\n\nAI INSIGHTS:\n{{ JSON.parse($('AI Data Analysis').item.json.message.content).insights.join('\n- ') }}\n\nRECOMMENDATIONS:\n{{ JSON.parse($('AI Data Analysis').item.json.message.content).recommendations.join('\n- ') }}\n\nNEXT WEEK FORECAST: ${{ JSON.parse($('AI Data Analysis').item.json.message.content).forecast }}\n\nBest regards,\nAnalytics Team",
+        "options": {}
+      },
+      "id": "da0d1e2f-0000-1111-2222-333344445555",
+      "name": "Email Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1630, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "AnalyticsDashboard",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "week": "={{ $now.toFormat('yyyy-Www') }}",
+            "total_revenue": "={{ $('Calculate KPIs').item.json.kpis.total_revenue }}",
+            "total_orders": "={{ $('Calculate KPIs').item.json.kpis.total_orders }}",
+            "avg_order_value": "={{ $('Calculate KPIs').item.json.kpis.avg_order_value }}",
+            "conversion_rate": "={{ $('Calculate KPIs').item.json.kpis.conversion_rate }}",
+            "cac": "={{ $('Calculate KPIs').item.json.kpis.customer_acquisition_cost }}",
+            "roi": "={{ $('Calculate KPIs').item.json.kpis.roi }}",
+            "risk_level": "={{ JSON.parse($('AI Data Analysis').item.json.message.content).risk_level }}",
+            "forecast": "={{ JSON.parse($('AI Data Analysis').item.json.message.content).forecast }}",
+            "trends": "={{ JSON.stringify(JSON.parse($('AI Data Analysis').item.json.message.content).trends) }}",
+            "insights": "={{ JSON.stringify(JSON.parse($('AI Data Analysis').item.json.message.content).insights) }}",
+            "generated_at": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "da1e2f3a-1111-2222-3333-444455556666",
+      "name": "Save to Dashboard",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1860, 300]
+    }
+  ],
+  "connections": {
+    "Weekly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Sales Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Marketing Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch External Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Sales Data": {
+      "main": [
+        [
+          {
+            "node": "Calculate KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Marketing Data": {
+      "main": [
+        [
+          {
+            "node": "Calculate KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch External Metrics": {
+      "main": [
+        [
+          {
+            "node": "Calculate KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate KPIs": {
+      "main": [
+        [
+          {
+            "node": "AI Data Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Data Analysis": {
+      "main": [
+        [
+          {
+            "node": "Check Risk Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Risk Level": {
+      "main": [
+        [
+          {
+            "node": "High Risk Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Risk Alert": {
+      "main": [
+        [
+          {
+            "node": "Slack Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Report": {
+      "main": [
+        [
+          {
+            "node": "Email Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Report": {
+      "main": [
+        [
+          {
+            "node": "Save to Dashboard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
