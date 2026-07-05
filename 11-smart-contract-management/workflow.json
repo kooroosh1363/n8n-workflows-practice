@@ -1,0 +1,302 @@
+{
+  "name": "Smart Contract Management",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "subject": "New Contract",
+        "format": "raw",
+        "downloadAttachments": true,
+        "options": {}
+      },
+      "id": "sc1a2b3c-1111-2222-3333-444455556666",
+      "name": "Email Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "driveId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_DRIVE_ID",
+          "mode": "id"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "YOUR_CONTRACTS_FOLDER_ID",
+          "mode": "id"
+        },
+        "fileName": "={{ $binary.attachment.fileName }}",
+        "inputDataFieldName": "attachment",
+        "options": {}
+      },
+      "id": "sc2b3c4d-2222-3333-4444-555566667777",
+      "name": "Save to Google Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this contract document and extract key clauses:\n\nContract Text:\n{{ $binary.attachment.data }}\n\nExtract and return JSON with:\n- parties (array of involved parties)\n- effective_date (contract start date)\n- expiration_date (contract end date)\n- payment_terms (payment conditions)\n- financial_obligations (monetary commitments)\n- termination_clauses (conditions for ending contract)\n- penalty_clauses (penalties and fines)\n- liability_terms (liability conditions)\n- confidentiality (confidentiality terms)\n- risk_factors (array of potential risks identified)\n- compliance_issues (array of compliance concerns)\n- overall_risk_score (0-100)\n- risk_level (low/medium/high)\n- recommended_action (approve/review/reject)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "sc3c4d5e-3333-4444-5555-666677778888",
+      "name": "AI Contract Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process AI Analysis Results\nconst aiResponse = JSON.parse($input.first().json.message.content);\n\n// Calculate risk score and categorize\nconst riskScore = aiResponse.overall_risk_score || 0;\nlet riskLevel = 'low';\nlet route = 'sales_team';\nlet priority = 'normal';\n\nif (riskScore >= 70) {\n  riskLevel = 'high';\n  route = 'legal_team';\n  priority = 'urgent';\n} else if (riskScore >= 40) {\n  riskLevel = 'medium';\n  route = 'finance_team';\n  priority = 'high';\n}\n\n// Prepare summary\nconst summary = {\n  contract_id: 'CONTRACT-' + Date.now(),\n  file_name: $('Email Trigger').item.binary.attachment.fileName,\n  received_at: $now.toISO(),\n  parties: aiResponse.parties,\n  effective_date: aiResponse.effective_date,\n  expiration_date: aiResponse.expiration_date,\n  payment_terms: aiResponse.payment_terms,\n  financial_obligations: aiResponse.financial_obligations,\n  termination_clauses: aiResponse.termination_clauses,\n  penalty_clauses: aiResponse.penalty_clauses,\n  risk_factors: aiResponse.risk_factors,\n  compliance_issues: aiResponse.compliance_issues,\n  risk_score: riskScore,\n  risk_level: riskLevel,\n  recommended_action: aiResponse.recommended_action,\n  route_to: route,\n  priority: priority,\n  drive_url: $('Save to Google Drive').item.json.webViewLink\n};\n\nreturn [{ json: summary }];"
+      },
+      "id": "sc4d5e6f-4444-5555-6666-777788889999",
+      "name": "Process Risk Assessment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.risk_level }}",
+                    "value2": "high"
+                  }
+                ]
+              },
+              "outputKey": "high_risk"
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.risk_level }}",
+                    "value2": "medium"
+                  }
+                ]
+              },
+              "outputKey": "medium_risk"
+            }
+          ]
+        },
+        "fallbackOutputKey": "low_risk"
+      },
+      "id": "sc5e6f7a-5555-6666-7777-888899990000",
+      "name": "Route by Risk Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#legal-alerts",
+        "text": "=🚨 HIGH RISK CONTRACT ALERT\n\nContract ID: {{ $json.contract_id }}\nFile: {{ $json.file_name }}\nRisk Score: {{ $json.risk_score }}/100\nRisk Level: {{ $json.risk_level }}\n\nParties: {{ $json.parties.join(', ') }}\nExpiration: {{ $json.expiration_date }}\n\n⚠️ Risk Factors:\n{{ $json.risk_factors.join('\n- ') }}\n\n🔴 Compliance Issues:\n{{ $json.compliance_issues.join('\n- ') }}\n\n📋 Recommended Action: {{ $json.recommended_action }}\n\n📄 Document: {{ $json.drive_url }}\n\nImmediate legal review required!",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "sc6f7a8b-6666-7777-8888-999900001111",
+      "name": "Alert Legal Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "contracts@yourcompany.com",
+        "toEmail": "finance@yourcompany.com",
+        "subject": "=Medium Risk Contract Review Required - {{ $json.contract_id }}",
+        "emailType": "text",
+        "message": "=Dear Finance Team,\n\nA new contract requires your review due to medium risk level.\n\nCONTRACT DETAILS:\n- Contract ID: {{ $json.contract_id }}\n- File: {{ $json.file_name }}\n- Risk Score: {{ $json.risk_score }}/100\n- Parties: {{ $json.parties.join(', ') }}\n- Effective Date: {{ $json.effective_date }}\n- Expiration Date: {{ $json.expiration_date }}\n\nFINANCIAL TERMS:\n- Payment Terms: {{ $json.payment_terms }}\n- Financial Obligations: {{ $json.financial_obligations }}\n- Penalty Clauses: {{ $json.penalty_clauses }}\n\nRISK ASSESSMENT:\n- Risk Level: {{ $json.risk_level }}\n- Risk Factors: {{ $json.risk_factors.join(', ') }}\n\nRECOMMENDED ACTION: {{ $json.recommended_action }}\n\nDocument Link: {{ $json.drive_url }}\n\nPlease review and provide your assessment.\n\nBest regards,\nContract Management System",
+        "options": {}
+      },
+      "id": "sc7a8b9c-7777-8888-9999-000011112222",
+      "name": "Notify Finance Team",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "contracts@yourcompany.com",
+        "toEmail": "sales@yourcompany.com",
+        "subject": "=New Contract Received - {{ $json.contract_id }}",
+        "emailType": "text",
+        "message": "=Dear Sales Team,\n\nA new contract has been received and processed.\n\nCONTRACT SUMMARY:\n- Contract ID: {{ $json.contract_id }}\n- File: {{ $json.file_name }}\n- Parties: {{ $json.parties.join(', ') }}\n- Effective Date: {{ $json.effective_date }}\n- Expiration Date: {{ $json.expiration_date }}\n- Risk Level: {{ $json.risk_level }} (Low Risk)\n\nThe contract has been automatically approved and saved to Google Drive.\n\nDocument Link: {{ $json.drive_url }}\n\nBest regards,\nContract Management System",
+        "options": {}
+      },
+      "id": "sc8b9c0d-8888-9999-0000-111122223333",
+      "name": "Notify Sales Team",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ContractsLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "contract_id": "={{ $json.contract_id }}",
+            "file_name": "={{ $json.file_name }}",
+            "received_at": "={{ $json.received_at }}",
+            "parties": "={{ $json.parties.join(', ') }}",
+            "effective_date": "={{ $json.effective_date }}",
+            "expiration_date": "={{ $json.expiration_date }}",
+            "risk_score": "={{ $json.risk_score }}",
+            "risk_level": "={{ $json.risk_level }}",
+            "recommended_action": "={{ $json.recommended_action }}",
+            "route_to": "={{ $json.route_to }}",
+            "drive_url": "={{ $json.drive_url }}",
+            "processed_at": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sc9c0d1e-9999-0000-1111-222233334444",
+      "name": "Log to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1630, 300]
+    }
+  ],
+  "connections": {
+    "Email Trigger": {
+      "main": [
+        [
+          {
+            "node": "Save to Google Drive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Google Drive": {
+      "main": [
+        [
+          {
+            "node": "AI Contract Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Contract Analysis": {
+      "main": [
+        [
+          {
+            "node": "Process Risk Assessment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Risk Assessment": {
+      "main": [
+        [
+          {
+            "node": "Route by Risk Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Risk Level": {
+      "main": [
+        [
+          {
+            "node": "Alert Legal Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Finance Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Sales Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Legal Team": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Finance Team": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Sales Team": {
+      "main": [
+        [
+          {
+            "node": "Log to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
