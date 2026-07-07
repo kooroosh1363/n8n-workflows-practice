@@ -1,0 +1,324 @@
+{
+  "name": "Social Media Automation with AI",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "sm1a2b3c-1111-2222-3333-444455556666",
+      "name": "Weekly Content Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.example.com/trends/industry",
+        "options": {}
+      },
+      "id": "sm2b3c4d-2222-3333-4444-555566667777",
+      "name": "Fetch Industry Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Based on these industry trends: {{ JSON.stringify($input.first().json.trends) }}\n\nGenerate 3 social media posts (1 for LinkedIn, 1 for Twitter/X, 1 for Instagram).\n\nReturn JSON with:\n- linkedin_post (professional tone, 150-200 words, include hashtags)\n- twitter_post (short, engaging, max 280 chars, include 3 hashtags)\n- instagram_post (casual tone, include emojis, call-to-action, 5-10 hashtags)\n- suggested_image_idea (description of image to use)\n- best_posting_times (object with best times for each platform)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "sm3c4d5e-3333-4444-5555-666677778888",
+      "name": "AI Content Generator",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format and prepare posts for publishing\nconst aiContent = JSON.parse($input.first().json.message.content);\nconst trends = $('Fetch Industry Trends').first().json.trends;\n\nconst posts = [\n  {\n    platform: 'LinkedIn',\n    content: aiContent.linkedin_post,\n    image_idea: aiContent.suggested_image_idea,\n    best_time: aiContent.best_posting_times.linkedin,\n    status: 'pending_approval',\n    created_at: $now.toISO()\n  },\n  {\n    platform: 'Twitter',\n    content: aiContent.twitter_post,\n    image_idea: aiContent.suggested_image_idea,\n    best_time: aiContent.best_posting_times.twitter,\n    status: 'pending_approval',\n    created_at: $now.toISO()\n  },\n  {\n    platform: 'Instagram',\n    content: aiContent.instagram_post,\n    image_idea: aiContent.suggested_image_idea,\n    best_time: aiContent.best_posting_times.instagram,\n    status: 'pending_approval',\n    created_at: $now.toISO()\n  }\n];\n\nreturn posts.map(p => ({ json: { ...p, trends: trends } }));"
+      },
+      "id": "sm4d5e6f-4444-5555-6666-777788889999",
+      "name": "Format Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ContentCalendar",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "platform": "={{ $json.platform }}",
+            "content": "={{ $json.content }}",
+            "image_idea": "={{ $json.image_idea }}",
+            "best_time": "={{ $json.best_time }}",
+            "status": "={{ $json.status }}",
+            "created_at": "={{ $json.created_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "sm5e6f7a-5555-6666-7777-888899990000",
+      "name": "Save to Content Calendar",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "marketing@yourcompany.com",
+        "toEmail": "marketing-manager@yourcompany.com",
+        "subject": "=Social Media Posts Approval Required - Week of {{ $now.toFormat('yyyy-MM-dd') }}",
+        "emailType": "text",
+        "message": "=Dear Marketing Manager,\n\nPlease review and approve the following AI-generated social media posts for this week:\n\nLINKEDIN POST:\n{{ $json.content }}\n\nTWITTER POST:\n{{ $json.content }}\n\nINSTAGRAM POST:\n{{ $json.content }}\n\nImage Idea: {{ $json.image_idea }}\n\nPlease reply with 'APPROVED' or provide edits.\n\nBest regards,\nSocial Media Automation System",
+        "options": {}
+      },
+      "id": "sm6f7a8b-6666-7777-8888-999900001111",
+      "name": "Send for Approval",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.{{ $json.platform.toLowerCase() }}.com/v1/posts",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_SOCIAL_MEDIA_API_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "content",
+              "value": "={{ $json.content }}"
+            },
+            {
+              "name": "scheduled_time",
+              "value": "={{ $json.best_time }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sm7a8b9c-7777-8888-9999-000011112222",
+      "name": "Publish to Social Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1630, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * *"
+            }
+          ]
+        }
+      },
+      "id": "sm8b9c0d-8888-9999-0000-111122223333",
+      "name": "Daily Analytics Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 600]
+    },
+    {
+      "parameters": {
+        "url": "https://api.example.com/analytics/social",
+        "options": {}
+      },
+      "id": "sm9c0d1e-9999-0000-1111-222233334444",
+      "name": "Fetch Social Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [480, 600]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this social media performance data:\n\n{{ JSON.stringify($input.first().json) }}\n\nProvide:\n- top_performing_post (platform and content snippet)\n- lowest_performing_post (platform and content snippet)\n- overall_engagement_rate (percentage)\n- key_insights (array of 3 insights)\n- recommendations (array of 3 actionable recommendations for next week)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "sm0d1e2f-0000-1111-2222-333344445555",
+      "name": "AI Analytics Insights",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 600]
+    },
+    {
+      "parameters": {
+        "fromEmail": "marketing@yourcompany.com",
+        "toEmail": "marketing-team@yourcompany.com",
+        "subject": "=Weekly Social Media Performance Report - {{ $now.toFormat('yyyy-MM-dd') }}",
+        "emailType": "text",
+        "message": "=Dear Marketing Team,\n\nHere is your weekly social media performance report:\n\n🏆 TOP PERFORMING POST:\n{{ JSON.parse($('AI Analytics Insights').item.json.message.content).top_performing_post }}\n\n📉 LOWEST PERFORMING POST:\n{{ JSON.parse($('AI Analytics Insights').item.json.message.content).lowest_performing_post }}\n\n📊 OVERALL ENGAGEMENT RATE:\n{{ JSON.parse($('AI Analytics Insights').item.json.message.content).overall_engagement_rate }}\n\n💡 KEY INSIGHTS:\n{{ JSON.parse($('AI Analytics Insights').item.json.message.content).key_insights.join('\\n- ') }}\n\n🚀 RECOMMENDATIONS FOR NEXT WEEK:\n{{ JSON.parse($('AI Analytics Insights').item.json.message.content).recommendations.join('\\n- ') }}\n\nBest regards,\nSocial Media Automation System",
+        "options": {}
+      },
+      "id": "sm1e2f3a-1111-2222-3333-444455556666",
+      "name": "Send Weekly Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 600]
+    }
+  ],
+  "connections": {
+    "Weekly Content Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Industry Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Industry Trends": {
+      "main": [
+        [
+          {
+            "node": "AI Content Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Content Generator": {
+      "main": [
+        [
+          {
+            "node": "Format Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Posts": {
+      "main": [
+        [
+          {
+            "node": "Save to Content Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Content Calendar": {
+      "main": [
+        [
+          {
+            "node": "Send for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send for Approval": {
+      "main": [
+        [
+          {
+            "node": "Publish to Social Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Analytics Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Social Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Social Analytics": {
+      "main": [
+        [
+          {
+            "node": "AI Analytics Insights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analytics Insights": {
+      "main": [
+        [
+          {
+            "node": "Send Weekly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
