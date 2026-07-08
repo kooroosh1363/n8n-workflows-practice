@@ -1,0 +1,538 @@
+{
+  "name": "Smart Patient Care Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "appointment-request",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "pc1a2b3c-1111-2222-3333-444455556666",
+      "name": "Appointment Request Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "pc-webhook-001"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this patient appointment request and perform medical triage:\n\nPatient Name: {{ $json.patient_name }}\nAge: {{ $json.age }}\nSymptoms: {{ $json.symptoms }}\nRequested Specialty: {{ $json.specialty }}\nPreferred Date: {{ $json.preferred_date }}\n\nReturn JSON with:\n- urgency_level (emergency/urgent/normal)\n- priority_score (1-10)\n- recommended_specialty (string)\n- estimated_consultation_time (minutes)\n- pre_visit_questions (array of 3-5 questions to ask before visit)\n- risk_factors (array of identified risk factors)\n- triage_notes (brief medical notes)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "pc2b3c4d-2222-3333-4444-555566667777",
+      "name": "AI Medical Triage",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendarId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_CALENDAR_ID",
+          "mode": "id"
+        },
+        "timeMin": "={{ $now.toISO() }}",
+        "timeMax": "={{ $now.plus({days: 7}).toISO() }}",
+        "options": {}
+      },
+      "id": "pc3c4d5e-3333-4444-5555-666677778888",
+      "name": "Check Calendar Availability",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Find best available slot and prepare appointment data\nconst triageResult = JSON.parse($('AI Medical Triage').first().json.message.content);\nconst calendarEvents = $('Check Calendar Availability').all().map(item => item.json);\nconst patientData = $('Appointment Request Webhook').first().json;\n\n// Find next available slot (simplified logic)\nconst now = new Date();\nlet appointmentTime;\n\nif (triageResult.urgency_level === 'emergency') {\n  appointmentTime = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 hours from now\n} else if (triageResult.urgency_level === 'urgent') {\n  appointmentTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now\n} else {\n  appointmentTime = new Date(now.getTime() + 48 * 60 * 60 * 1000); // 48 hours from now\n}\n\n// Generate appointment ID\nconst appointmentId = 'APT-' + Date.now();\n\nreturn [{\n  json: {\n    appointment_id: appointmentId,\n    patient_name: patientData.patient_name,\n    patient_email: patientData.email,\n    patient_phone: patientData.phone,\n    age: patientData.age,\n    symptoms: patientData.symptoms,\n    specialty: triageResult.recommended_specialty,\n    urgency_level: triageResult.urgency_level,\n    priority_score: triageResult.priority_score,\n    appointment_time: appointmentTime.toISOString(),\n    estimated_duration: triageResult.estimated_consultation_time,\n    pre_visit_questions: triageResult.pre_visit_questions,\n    risk_factors: triageResult.risk_factors,\n    triage_notes: triageResult.triage_notes,\n    status: 'scheduled',\n    created_at: $now.toISO()\n  }\n}];"
+      },
+      "id": "pc4d5e6f-4444-5555-6666-777788889999",
+      "name": "Schedule Appointment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Appointments",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "appointment_id": "={{ $json.appointment_id }}",
+            "patient_name": "={{ $json.patient_name }}",
+            "patient_email": "={{ $json.patient_email }}",
+            "patient_phone": "={{ $json.patient_phone }}",
+            "age": "={{ $json.age }}",
+            "symptoms": "={{ $json.symptoms }}",
+            "specialty": "={{ $json.specialty }}",
+            "urgency_level": "={{ $json.urgency_level }}",
+            "priority_score": "={{ $json.priority_score }}",
+            "appointment_time": "={{ $json.appointment_time }}",
+            "estimated_duration": "={{ $json.estimated_duration }}",
+            "status": "={{ $json.status }}",
+            "created_at": "={{ $json.created_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "pc5e6f7a-5555-6666-7777-888899990000",
+      "name": "Save Appointment to Database",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "calendarId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_CALENDAR_ID",
+          "mode": "id"
+        },
+        "start": "={{ $json.appointment_time }}",
+        "end": "={{ new Date(new Date($json.appointment_time).getTime() + $json.estimated_duration * 60000).toISOString() }}",
+        "summary": "=Appointment: {{ $json.patient_name }} - {{ $json.specialty }}",
+        "description": "=Patient: {{ $json.patient_name }}\nAge: {{ $json.age }}\nSymptoms: {{ $json.symptoms }}\nUrgency: {{ $json.urgency_level }}\nPriority Score: {{ $json.priority_score }}\n\nTriage Notes:\n{{ $json.triage_notes }}\n\nRisk Factors:\n{{ $json.risk_factors.join(', ') }}",
+        "options": {}
+      },
+      "id": "pc6f7a8b-6666-7777-8888-999900001111",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Appointment Request Webhook').first().json.telegram_chat_id || 'YOUR_TELEGRAM_CHAT_ID' }}",
+        "text": "=✅ نوبت شما با موفقیت رزرو شد!\n\n👤 بیمار: {{ $json.patient_name }}\n🏥 تخصص: {{ $json.specialty }}\n تاریخ و ساعت: {{ new Date($json.appointment_time).toLocaleString('fa-IR') }}\n⏱️ مدت ویزیت: {{ $json.estimated_duration }} دقیقه\n🆔 کد نوبت: {{ $json.appointment_id }}\n\n️ سطح فوریت: {{ $json.urgency_level === 'emergency' ? 'اورژانسی' : $json.urgency_level === 'urgent' ? 'فوری' : 'عادی' }}\n\n📋 سوالات پیش از ویزیت:\n{{ $json.pre_visit_questions.map((q, i) => `${i+1}. ${q}`).join('\\n') }}\n\nلطفاً به این سوالات قبل از ویزیت پاسخ دهید.\n\nبا احترام،\nسیستم نوبت‌دهی هوشمند",
+        "additionalFields": {}
+      },
+      "id": "pc7a8b9c-7777-8888-9999-000011112222",
+      "name": "Send Appointment Confirmation",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1630, 300]
+    },
+    {
+      "parameters": {
+        "amount": 24,
+        "unit": "hours"
+      },
+      "id": "pc8b9c0d-8888-9999-0000-111122223333",
+      "name": "Wait 24 Hours",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1860, 300],
+      "webhookId": "pc-wait-24h"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Appointment Request Webhook').first().json.telegram_chat_id || 'YOUR_TELEGRAM_CHAT_ID' }}",
+        "text": "=🔔 یادآوری نوبت\n\n👤 بیمار: {{ $json.patient_name }}\n🏥 تخصص: {{ $json.specialty }}\n📅 نوبت شما: {{ new Date($json.appointment_time).toLocaleString('fa-IR') }}\n🆔 کد نوبت: {{ $json.appointment_id }}\n\n نوبت شما ۲۴ ساعت دیگر است.\n\nلطفاً سوالات پیش از ویزیت را پاسخ دهید و مدارک پزشکی خود را همراه داشته باشید.\n\nدر صورت نیاز به کنسلی، لطفاً از ۲ ساعت قبل اطلاع دهید.",
+        "additionalFields": {}
+      },
+      "id": "pc9c0d1e-9999-0000-1111-222233334444",
+      "name": "Send 24h Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [2090, 300]
+    },
+    {
+      "parameters": {
+        "amount": 22,
+        "unit": "hours"
+      },
+      "id": "pc0d1e2f-0000-1111-2222-333344445555",
+      "name": "Wait 22 Hours",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2320, 300],
+      "webhookId": "pc-wait-22h"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Appointment Request Webhook').first().json.telegram_chat_id || 'YOUR_TELEGRAM_CHAT_ID' }}",
+        "text": "=⏰ یادآوری فوری\n\n👤 بیمار: {{ $json.patient_name }}\n🏥 تخصص: {{ $json.specialty }}\n📅 نوبت شما: {{ new Date($json.appointment_time).toLocaleString('fa-IR') }}\n\n⚡ نوبت شما ۲ ساعت دیگر است!\n\nلطفاً ۱۵ دقیقه قبل از نوبت در کلینیک حاضر باشید.\n\n📍 آدرس کلینیک: [آدرس کلینیک]\n📞 تلفن: [شماره تلفن]",
+        "additionalFields": {}
+      },
+      "id": "pc1e2f3a-1111-2222-3333-444455556666",
+      "name": "Send 2h Reminder",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [2550, 300]
+    },
+    {
+      "parameters": {
+        "amount": 48,
+        "unit": "hours"
+      },
+      "id": "pc2f3a4b-2222-3333-4444-555566667777",
+      "name": "Wait 48 Hours Post-Visit",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2780, 300],
+      "webhookId": "pc-wait-48h"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Appointment Request Webhook').first().json.telegram_chat_id || 'YOUR_TELEGRAM_CHAT_ID' }}",
+        "text": "= پیگیری پس از ویزیت\n\n بیمار: {{ $json.patient_name }}\n کد نوبت: {{ $json.appointment_id }}\n\nامیدواریم حالتان بهتر شده باشد. لطفاً به سوالات زیر پاسخ دهید:\n\n1️⃣ آیا علائم شما بهبود یافته است؟ (بله/خیر/تا حدی)\n2️⃣ آیا عوارض جانبی جدیدی تجربه کرده‌اید؟ (توضیح دهید)\n3️⃣ آیا داروهای تجویز شده را مصرف کرده‌اید؟ (بله/خیر)\n4️⃣ آیا نیاز به ویزیت مجدد دارید؟ (بله/خیر)\n\nپاسخ خود را ارسال کنید.",
+        "additionalFields": {}
+      },
+      "id": "pc3a4b5c-3333-4444-5555-666677778888",
+      "name": "Send Follow-up Questionnaire",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [3010, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "follow-up-response",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "pc4b5c6d-4444-5555-6666-777788889999",
+      "name": "Follow-up Response Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [3240, 300],
+      "webhookId": "pc-webhook-002"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this patient follow-up response:\n\nPatient: {{ $json.patient_name }}\nAppointment ID: {{ $json.appointment_id }}\nFollow-up Response: {{ $json.follow_up_response }}\n\nDetermine:\n- symptom_improvement (improved/same/worsened)\n- has_adverse_effects (true/false)\n- needs_follow_up_visit (true/false)\n- requires_immediate_attention (true/false)\n- risk_level (low/medium/high)\n- doctor_alert_needed (true/false)\n- summary (brief medical summary)\n- recommended_actions (array of actions)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "pc5c6d7e-5555-6666-7777-888899990000",
+      "name": "AI Analyze Follow-up",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [3470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ JSON.parse($json.message.content).doctor_alert_needed }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "pc6d7e8f-6666-7777-8888-999900001111",
+      "name": "Check if Doctor Alert Needed",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [3700, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_DOCTOR_TELEGRAM_CHAT_ID",
+        "text": "=🚨 هشدار پزشکی - نیاز به توجه فوری\n\n👤 بیمار: {{ $('Follow-up Response Webhook').first().json.patient_name }}\n🆔 کد نوبت: {{ $('Follow-up Response Webhook').first().json.appointment_id }}\n\n⚠️ سطح ریسک: {{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).risk_level }}\n\n خلاصه:\n{{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).summary }}\n\n🎯 اقدامات توصیه شده:\n{{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).recommended_actions.join('\\n- ') }}\n\nلطفاً در اسرع وقت با بیمار تماس بگیرید.",
+        "additionalFields": {}
+      },
+      "id": "pc7e8f9a-7777-8888-9999-000011112222",
+      "name": "Alert Doctor",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [3930, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Follow-up Response Webhook').first().json.telegram_chat_id || 'YOUR_TELEGRAM_CHAT_ID' }}",
+        "text": "=✅ پیگیری شما ثبت شد\n\n👤 بیمار: {{ $json.patient_name }}\n\n وضعیت: {{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).symptom_improvement === 'improved' ? 'بهبود یافته' : JSON.parse($('AI Analyze Follow-up').first().json.message.content).symptom_improvement === 'same' ? 'بدون تغییر' : 'نیاز به بررسی' }}\n\n{{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).needs_follow_up_visit ? '🔄 ویزیت مجدد توصیه می‌شود. به زودی با شما تماس گرفته خواهد شد.' : '✅ نیازی به ویزیت مجدد نیست.' }}\n\nبا آرزوی سلامتی،\nتیم پزشکی",
+        "additionalFields": {}
+      },
+      "id": "pc8f9a0b-8888-9999-0000-111122223333",
+      "name": "Send Patient Follow-up Response",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [3930, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "FollowUpLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "appointment_id": "={{ $('Follow-up Response Webhook').first().json.appointment_id }}",
+            "patient_name": "={{ $('Follow-up Response Webhook').first().json.patient_name }}",
+            "follow_up_response": "={{ $('Follow-up Response Webhook').first().json.follow_up_response }}",
+            "symptom_improvement": "={{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).symptom_improvement }}",
+            "risk_level": "={{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).risk_level }}",
+            "doctor_alert_needed": "={{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).doctor_alert_needed }}",
+            "needs_follow_up_visit": "={{ JSON.parse($('AI Analyze Follow-up').first().json.message.content).needs_follow_up_visit }}",
+            "processed_at": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "pc9a0b1c-9999-0000-1111-222233334444",
+      "name": "Log Follow-up to Database",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [4160, 300]
+    }
+  ],
+  "connections": {
+    "Appointment Request Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Medical Triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Medical Triage": {
+      "main": [
+        [
+          {
+            "node": "Check Calendar Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Calendar Availability": {
+      "main": [
+        [
+          {
+            "node": "Schedule Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Appointment": {
+      "main": [
+        [
+          {
+            "node": "Save Appointment to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Appointment to Database": {
+      "main": [
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Send Appointment Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Appointment Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Wait 24 Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 24 Hours": {
+      "main": [
+        [
+          {
+            "node": "Send 24h Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send 24h Reminder": {
+      "main": [
+        [
+          {
+            "node": "Wait 22 Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 22 Hours": {
+      "main": [
+        [
+          {
+            "node": "Send 2h Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send 2h Reminder": {
+      "main": [
+        [
+          {
+            "node": "Wait 48 Hours Post-Visit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 48 Hours Post-Visit": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-up Questionnaire",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Follow-up Questionnaire": {
+      "main": [
+        [
+          {
+            "node": "Follow-up Response Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up Response Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Check if Doctor Alert Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Doctor Alert Needed": {
+      "main": [
+        [
+          {
+            "node": "Alert Doctor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Patient Follow-up Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert Doctor": {
+      "main": [
+        [
+          {
+            "node": "Log Follow-up to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Patient Follow-up Response": {
+      "main": [
+        [
+          {
+            "node": "Log Follow-up to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
