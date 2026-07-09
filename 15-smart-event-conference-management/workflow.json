@@ -1,0 +1,440 @@
+{
+  "name": "Smart Event & Conference Management",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "event-registration",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ev1a2b3c-1111-2222-3333-444455556666",
+      "name": "Registration Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "ev-webhook-reg"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate Ticket Data and QR Code Payload\nconst registration = $input.first().json;\nconst ticketId = 'EVT-' + Date.now();\nconst qrPayload = `https://yourdomain.com/check-in?ticket=${ticketId}&email=${registration.email}`;\n\nreturn [{\n  json: {\n    ...registration,\n    ticket_id: ticketId,\n    qr_code_payload: qrPayload,\n    registration_date: $now.toISO(),\n    status: 'registered'\n  }\n}];"
+      },
+      "id": "ev2b3c4d-2222-3333-4444-555566667777",
+      "name": "Generate Ticket Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Registrations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $json.ticket_id }}",
+            "full_name": "={{ $json.full_name }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "company": "={{ $json.company }}",
+            "interests": "={{ $json.interests }}",
+            "registration_date": "={{ $json.registration_date }}",
+            "status": "={{ $json.status }}",
+            "attended": "false",
+            "feedback_submitted": "false"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ev3c4d5e-3333-4444-5555-666677778888",
+      "name": "Save to Registrations DB",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "events@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Your Ticket for [Event Name] - {{ $json.ticket_id }}",
+        "emailType": "text",
+        "message": "=Dear {{ $json.full_name }},\n\nThank you for registering for [Event Name]!\n\nYour Ticket Details:\n- Ticket ID: {{ $json.ticket_id }}\n- Date: [Event Date]\n- Location: [Event Location]\n\nPlease present your Ticket ID or QR Code at the entrance.\n\nBest regards,\nEvent Management Team",
+        "options": {}
+      },
+      "id": "ev4d5e6f-4444-5555-6666-777788889999",
+      "name": "Send Ticket Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "amount": 7,
+        "unit": "days"
+      },
+      "id": "ev5e6f7a-5555-6666-7777-888899990000",
+      "name": "Wait 7 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1170, 300],
+      "webhookId": "ev-wait-7d"
+    },
+    {
+      "parameters": {
+        "fromEmail": "events@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Reminder: [Event Name] is in 7 Days!",
+        "emailType": "text",
+        "message": "=Dear {{ $json.full_name }},\n\nJust a friendly reminder that [Event Name] is happening in 7 days!\n\nDate: [Event Date]\nLocation: [Event Location]\n\nWe look forward to seeing you.\n\nBest regards,\nEvent Team",
+        "options": {}
+      },
+      "id": "ev6f7a8b-6666-7777-8888-999900001111",
+      "name": "Send 7-Day Reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "days"
+      },
+      "id": "ev7a8b9c-7777-8888-9999-000011112222",
+      "name": "Wait 1 Day",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1630, 300],
+      "webhookId": "ev-wait-1d"
+    },
+    {
+      "parameters": {
+        "fromEmail": "events@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Reminder: [Event Name] is Tomorrow!",
+        "emailType": "text",
+        "message": "=Dear {{ $json.full_name }},\n\n[Event Name] is happening tomorrow!\n\nDate: [Event Date]\nTime: [Event Time]\nLocation: [Event Location]\n\nPlease have your Ticket ID ready: {{ $json.ticket_id }}\n\nSee you soon!",
+        "options": {}
+      },
+      "id": "ev8b9c0d-8888-9999-0000-111122223333",
+      "name": "Send 1-Day Reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1860, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "event-checkin",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ev9c0d1e-9999-0000-1111-222233334444",
+      "name": "Check-in Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 600],
+      "webhookId": "ev-webhook-checkin"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Registrations",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $json.ticket_id }}",
+            "attended": "true",
+            "check_in_time": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ev0d1e2f-0000-1111-2222-333344445555",
+      "name": "Update Attendance",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 600]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * *"
+            }
+          ]
+        }
+      },
+      "id": "ev1e2f3a-1111-2222-3333-444455556666",
+      "name": "Post-Event Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 900]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Registrations",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "ev2f3a4b-2222-3333-4444-555566667777",
+      "name": "Get All Registrations",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 900]
+    },
+    {
+      "parameters": {
+        "fromEmail": "events@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Feedback Form & Certificate for [Event Name]",
+        "emailType": "text",
+        "message": "=Dear {{ $json.full_name }},\n\nThank you for attending [Event Name]!\n\nPlease fill out our feedback form: [Feedback Link]\n\n{{ $json.attended === 'true' ? 'Your Certificate of Attendance is attached.' : 'We missed you at the event.' }}\n\nBest regards,\nEvent Team",
+        "options": {}
+      },
+      "id": "ev3a4b5c-3333-4444-5555-666677778888",
+      "name": "Send Feedback Request",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [710, 900]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "event-feedback",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "ev4b5c6d-4444-5555-6666-777788889999",
+      "name": "Feedback Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 1200],
+      "webhookId": "ev-webhook-feedback"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this event feedback:\n\nFeedback: {{ $json.feedback_text }}\nRating: {{ $json.rating }}\n\nProvide:\n- sentiment (positive/neutral/negative)\n- key_themes (array of main topics mentioned)\n- suggestions (array of actionable suggestions)\n- overall_score (1-10 based on text and rating)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "ev5c6d7e-5555-6666-7777-888899990000",
+      "name": "AI Analyze Feedback",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [480, 1200]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "FeedbackLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "ticket_id": "={{ $json.ticket_id }}",
+            "rating": "={{ $json.rating }}",
+            "feedback_text": "={{ $json.feedback_text }}",
+            "sentiment": "={{ JSON.parse($('AI Analyze Feedback').first().json.message.content).sentiment }}",
+            "overall_score": "={{ JSON.parse($('AI Analyze Feedback').first().json.message.content).overall_score }}",
+            "submitted_at": "={{ $now.toISO() }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "ev6d7e8f-6666-7777-8888-999900001111",
+      "name": "Log Feedback",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [710, 1200]
+    }
+  ],
+  "connections": {
+    "Registration Webhook": {
+      "main": [
+        [
+          {
+            "node": "Generate Ticket Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Ticket Data": {
+      "main": [
+        [
+          {
+            "node": "Save to Registrations DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Registrations DB": {
+      "main": [
+        [
+          {
+            "node": "Send Ticket Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Ticket Email": {
+      "main": [
+        [
+          {
+            "node": "Wait 7 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 7 Days": {
+      "main": [
+        [
+          {
+            "node": "Send 7-Day Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send 7-Day Reminder": {
+      "main": [
+        [
+          {
+            "node": "Wait 1 Day",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 1 Day": {
+      "main": [
+        [
+          {
+            "node": "Send 1-Day Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check-in Webhook": {
+      "main": [
+        [
+          {
+            "node": "Update Attendance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post-Event Schedule": {
+      "main": [
+        [
+          {
+            "node": "Get All Registrations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Registrations": {
+      "main": [
+        [
+          {
+            "node": "Send Feedback Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Feedback Webhook": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze Feedback": {
+      "main": [
+        [
+          {
+            "node": "Log Feedback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
