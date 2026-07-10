@@ -1,0 +1,362 @@
+{
+  "name": "Smart Building Management with IoT",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "iot-sensor-data",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "iot1a2b3c-1111-2222-3333-444455556666",
+      "name": "IoT Sensor Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "iot-webhook-sensors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process and Enrich Sensor Data\nconst sensorData = $input.first().json;\n\n// Add timestamp and building zone\nconst enrichedData = {\n  ...sensorData,\n  timestamp: $now.toISO(),\n  building_zone: sensorData.zone || 'Main Hall',\n  sensor_id: sensorData.sensor_id || 'SENS-' + Math.floor(Math.random() * 1000),\n  is_after_hours: new Date().getHours() < 8 || new Date().getHours() > 18\n};\n\nreturn [{ json: enrichedData }];"
+      },
+      "id": "iot2b3c4d-2222-3333-4444-555566667777",
+      "name": "Process Sensor Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this IoT sensor data from a smart building:\n\nZone: {{ $json.building_zone }}\nTemperature: {{ $json.temperature }}°C\nHumidity: {{ $json.humidity }}%\nCO2 Level: {{ $json.co2 }} ppm\nMotion Detected: {{ $json.motion }}\nEnergy Consumption: {{ $json.energy_kwh }} kWh\nTime: {{ $json.timestamp }}\nAfter Hours: {{ $json.is_after_hours }}\n\nProvide a JSON response with:\n- anomaly_detected (boolean)\n- risk_level (low/medium/high/critical)\n- anomaly_type (string, e.g., 'High Temp', 'Intrusion', 'Energy Spike', or 'None')\n- hvac_recommendation (string, e.g., 'Increase cooling', 'Maintain current', 'Turn off')\n- lighting_recommendation (string)\n- energy_optimization_tip (string)\n- requires_emergency_alert (boolean)\n- summary (brief 1-sentence status)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "iot3c4d5e-3333-4444-5555-666677778888",
+      "name": "AI Anomaly Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{ JSON.parse($json.message.content).requires_emergency_alert }}",
+                    "value2": true
+                  }
+                ]
+              },
+              "outputKey": "emergency"
+            },
+            {
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ JSON.parse($json.message.content).risk_level }}",
+                    "value2": "high"
+                  }
+                ]
+              },
+              "outputKey": "high_risk"
+            }
+          ]
+        },
+        "fallbackOutputKey": "normal"
+      },
+      "id": "iot4d5e6f-4444-5555-6666-777788889999",
+      "name": "Route by Risk Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_FACILITY_MANAGER_CHAT_ID",
+        "text": "=🚨 EMERGENCY ALERT - Smart Building\n\nZone: {{ $('Process Sensor Data').first().json.building_zone }}\nSensor ID: {{ $('Process Sensor Data').first().json.sensor_id }}\nTime: {{ $('Process Sensor Data').first().json.timestamp }}\n\nAnomaly: {{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).anomaly_type }}\nRisk Level: {{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).risk_level }}\n\nSummary: {{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).summary }}\n\n⚠️ Immediate action required!",
+        "additionalFields": {}
+      },
+      "id": "iot5e6f7a-5555-6666-7777-888899990000",
+      "name": "Send Emergency Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.1,
+      "position": [1170, 200]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.yourbuilding.com/hvac/adjust",
+        "method": "POST",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_BUILDING_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"zone\": \"{{ $('Process Sensor Data').first().json.building_zone }}\",\n  \"hvac_action\": \"{{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).hvac_recommendation }}\",\n  \"lighting_action\": \"{{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).lighting_recommendation }}\"\n}",
+        "options": {}
+      },
+      "id": "iot6f7a8b-6666-7777-8888-999900001111",
+      "name": "Adjust HVAC & Lighting",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1170, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "SensorLogs",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $('Process Sensor Data').first().json.timestamp }}",
+            "sensor_id": "={{ $('Process Sensor Data').first().json.sensor_id }}",
+            "zone": "={{ $('Process Sensor Data').first().json.building_zone }}",
+            "temperature": "={{ $('Process Sensor Data').first().json.temperature }}",
+            "humidity": "={{ $('Process Sensor Data').first().json.humidity }}",
+            "co2": "={{ $('Process Sensor Data').first().json.co2 }}",
+            "energy_kwh": "={{ $('Process Sensor Data').first().json.energy_kwh }}",
+            "motion": "={{ $('Process Sensor Data').first().json.motion }}",
+            "risk_level": "={{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).risk_level }}",
+            "anomaly_type": "={{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).anomaly_type }}",
+            "hvac_action": "={{ JSON.parse($('AI Anomaly Analysis').first().json.message.content).hvac_recommendation }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "iot7a8b9c-7777-8888-9999-000011112222",
+      "name": "Log to Database",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "iot8b9c0d-8888-9999-0000-111122223333",
+      "name": "Daily Report Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 600]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "SensorLogs",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "iot9c0d1e-9999-0000-1111-222233334444",
+      "name": "Fetch Yesterday Logs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 600]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Generate a daily smart building report based on this sensor log data:\n\n{{ JSON.stringify($input.first().json) }}\n\nProvide a JSON response with:\n- total_readings (number)\n- avg_temperature (number)\n- avg_energy_consumption (number)\n- total_anomalies (number)\n- critical_incidents (number)\n- top_energy_waste_zone (string)\n- daily_summary (2-3 sentences)\n- top_3_recommendations (array of strings)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "iot0d1e2f-0000-1111-2222-333344445555",
+      "name": "AI Daily Report Generation",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 600]
+    },
+    {
+      "parameters": {
+        "fromEmail": "building-management@yourcompany.com",
+        "toEmail": "facility-manager@yourcompany.com",
+        "subject": "=Daily Smart Building Report - {{ $now.toFormat('yyyy-MM-dd') }}",
+        "emailType": "text",
+        "message": "=Dear Facility Manager,\n\nHere is your daily smart building report:\n\n📊 KEY METRICS:\n- Total Readings: {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).total_readings }}\n- Avg Temperature: {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).avg_temperature }}°C\n- Avg Energy Consumption: {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).avg_energy_consumption }} kWh\n- Total Anomalies: {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).total_anomalies }}\n- Critical Incidents: {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).critical_incidents }}\n\n📝 DAILY SUMMARY:\n{{ JSON.parse($('AI Daily Report Generation').first().json.message.content).daily_summary }}\n\n🔍 TOP ENERGY WASTE ZONE:\n{{ JSON.parse($('AI Daily Report Generation').first().json.message.content).top_energy_waste_zone }}\n\n TOP 3 RECOMMENDATIONS:\n1. {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).top_3_recommendations[0] }}\n2. {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).top_3_recommendations[1] }}\n3. {{ JSON.parse($('AI Daily Report Generation').first().json.message.content).top_3_recommendations[2] }}\n\nBest regards,\nSmart Building Automation System",
+        "options": {}
+      },
+      "id": "iot1e2f3a-1111-2222-3333-444455556666",
+      "name": "Send Daily Email Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 600]
+    }
+  ],
+  "connections": {
+    "IoT Sensor Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Sensor Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Sensor Data": {
+      "main": [
+        [
+          {
+            "node": "AI Anomaly Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Anomaly Analysis": {
+      "main": [
+        [
+          {
+            "node": "Route by Risk Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Risk Level": {
+      "main": [
+        [
+          {
+            "node": "Send Emergency Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Adjust HVAC & Lighting",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Emergency Alert": {
+      "main": [
+        [
+          {
+            "node": "Log to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adjust HVAC & Lighting": {
+      "main": [
+        [
+          {
+            "node": "Log to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Report Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Yesterday Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Yesterday Logs": {
+      "main": [
+        [
+          {
+            "node": "AI Daily Report Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Daily Report Generation": {
+      "main": [
+        [
+          {
+            "node": "Send Daily Email Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
