@@ -1,0 +1,275 @@
+{
+  "name": "Smart Supply Chain & Inventory Management",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "scm1a2b3c-1111-2222-3333-444455556666",
+      "name": "Daily Inventory Check",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Inventory",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "scm2b3c4d-2222-3333-4444-555566667777",
+      "name": "Fetch Current Inventory",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this inventory data and predict demand for the next 7 days:\n\nProduct: {{ $json.product_name }}\nCurrent Stock: {{ $json.current_stock }}\nHistorical Sales (Last 30 days): {{ $json.historical_sales }}\nSeasonality Factor: {{ $json.seasonality }}\nLead Time (Days): {{ $json.lead_time }}\n\nReturn JSON with:\n- predicted_demand_7days (number)\n- safety_stock_recommended (number)\n- reorder_point (number)\n- is_urgent (boolean, true if stock will run out before next delivery)\n- supplier_risk_note (string, brief note on supplier reliability based on lead time)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "scm3c4d5e-3333-4444-5555-666677778888",
+      "name": "AI Demand Forecasting",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate Reorder Point and Generate PO Draft\nconst inventory = $('Fetch Current Inventory').first().json;\nconst forecast = JSON.parse($('AI Demand Forecasting').first().json.message.content);\n\nconst reorderPoint = forecast.reorder_point;\nconst needsReorder = inventory.current_stock <= reorderPoint;\n\n// Calculate Order Quantity (EOQ simplified)\nconst orderQuantity = needsReorder ? Math.ceil(forecast.predicted_demand_7days * 1.5) - inventory.current_stock : 0;\nconst estimatedCost = orderQuantity * inventory.unit_cost;\n\n// Generate PO Number\nconst poNumber = 'PO-' + Date.now();\n\nreturn [{\n  json: {\n    ...inventory,\n    ...forecast,\n    po_number: poNumber,\n    needs_reorder: needsReorder,\n    order_quantity: orderQuantity,\n    estimated_cost: estimatedCost,\n    reorder_point: reorderPoint,\n    status: needsReorder ? 'pending_approval' : 'sufficient_stock',\n    generated_at: $now.toISO()\n  }\n}];"
+      },
+      "id": "scm4d5e6f-4444-5555-6666-777788889999",
+      "name": "Calculate Reorder & Generate PO",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "boolean": [
+                  {
+                    "value1": "={{ $json.needs_reorder }}",
+                    "value2": false
+                  }
+                ]
+              },
+              "outputKey": "sufficient_stock"
+            },
+            {
+              "conditions": {
+                "number": [
+                  {
+                    "value1": "={{ $json.estimated_cost }}",
+                    "operation": "smallerEqual",
+                    "value2": 5000
+                  }
+                ]
+              },
+              "outputKey": "auto_approve"
+            }
+          ]
+        },
+        "fallbackOutputKey": "manager_approval"
+      },
+      "id": "scm5e6f7a-5555-6666-7777-888899990000",
+      "name": "Route by PO Amount",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "procurement@yourcompany.com",
+        "toEmail": "={{ $json.supplier_email }}",
+        "subject": "=Purchase Order {{ $json.po_number }} - {{ $json.product_name }}",
+        "emailType": "text",
+        "message": "=Dear Supplier,\n\nPlease find our new Purchase Order below:\n\nPO Number: {{ $json.po_number }}\nProduct: {{ $json.product_name }}\nQuantity: {{ $json.order_quantity }} units\nUnit Price: ${{ $json.unit_cost }}\nTotal Amount: ${{ $json.estimated_cost }}\n\nExpected Delivery Date: {{ $now.plus({days: $json.lead_time}).toFormat('yyyy-MM-dd') }}\n\nPlease confirm receipt and estimated shipping date.\n\nBest regards,\nProcurement Team",
+        "options": {}
+      },
+      "id": "scm6f7a8b-6666-7777-8888-999900001111",
+      "name": "Send PO to Supplier (Auto)",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 200]
+    },
+    {
+      "parameters": {
+        "channel": "#procurement-alerts",
+        "text": "=⚠️ High-Value PO Requires Approval\n\n Product: {{ $json.product_name }}\n🆔 PO Number: {{ $json.po_number }}\n💰 Estimated Cost: ${{ $json.estimated_cost }}\n📊 Current Stock: {{ $json.current_stock }}\n📈 Predicted Demand: {{ $json.predicted_demand_7days }}\n Urgent: {{ $json.is_urgent ? 'YES' : 'NO' }}\n\nPlease review and approve/reject in the ERP system.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "scm7a8b9c-7777-8888-9999-000011112222",
+      "name": "Notify Manager for Approval",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1400, 400]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "PurchaseOrdersLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "po_number": "={{ $json.po_number }}",
+            "product_name": "={{ $json.product_name }}",
+            "current_stock": "={{ $json.current_stock }}",
+            "reorder_point": "={{ $json.reorder_point }}",
+            "order_quantity": "={{ $json.order_quantity }}",
+            "estimated_cost": "={{ $json.estimated_cost }}",
+            "is_urgent": "={{ $json.is_urgent }}",
+            "status": "={{ $json.status }}",
+            "generated_at": "={{ $json.generated_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "scm8b9c0d-8888-9999-0000-111122223333",
+      "name": "Log PO to Database",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1630, 300]
+    }
+  ],
+  "connections": {
+    "Daily Inventory Check": {
+      "main": [
+        [
+          {
+            "node": "Fetch Current Inventory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Current Inventory": {
+      "main": [
+        [
+          {
+            "node": "AI Demand Forecasting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Demand Forecasting": {
+      "main": [
+        [
+          {
+            "node": "Calculate Reorder & Generate PO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Reorder & Generate PO": {
+      "main": [
+        [
+          {
+            "node": "Route by PO Amount",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by PO Amount": {
+      "main": [
+        [
+          {
+            "node": "Log PO to Database",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send PO to Supplier (Auto)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Manager for Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send PO to Supplier (Auto)": {
+      "main": [
+        [
+          {
+            "node": "Log PO to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Manager for Approval": {
+      "main": [
+        [
+          {
+            "node": "Log PO to Database",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
