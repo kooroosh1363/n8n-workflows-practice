@@ -1,0 +1,438 @@
+{
+  "name": "Smart Customer Success & Churn Prevention",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "cs1a2b3c-1111-2222-3333-444455556666",
+      "name": "Weekly Health Check Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Customers",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "cs2b3c4d-2222-3333-4444-555566667777",
+      "name": "Fetch Customer Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Analyze this customer's data and calculate their Health Score:\n\nCustomer: {{ $json.customer_name }}\nPlan: {{ $json.plan }}\nMonthly Usage (hours): {{ $json.monthly_usage_hours }}\nLogin Frequency (last 30 days): {{ $json.login_frequency }}\nSupport Tickets (last 90 days): {{ $json.support_tickets }}\nLast NPS Score (1-10): {{ $json.nps_score }}\nAccount Age (months): {{ $json.account_age_months }}\nPayment History: {{ $json.payment_history }}\n\nReturn JSON with:\n- health_score (0-100, where 100 is perfectly healthy)\n- risk_level (high/medium/low)\n- churn_probability (percentage 0-100)\n- top_risk_factors (array of 2-3 main reasons for risk)\n- recommended_action (string, specific action to take)\n- sentiment_analysis (positive/neutral/negative based on tickets and NPS)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.3
+        }
+      },
+      "id": "cs3c4d5e-3333-4444-5555-666677778888",
+      "name": "AI Health Score Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Health Score and Generate Retention Code\nconst customer = $('Fetch Customer Data').first().json;\nconst analysis = JSON.parse($('AI Health Score Analysis').first().json.message.content);\n\n// Generate unique retention code for high-risk customers\nconst generateRetentionCode = (riskLevel, plan) => {\n  const prefix = riskLevel === 'high' ? 'SAVE' : 'THANK';\n  const planCode = plan.substring(0, 3).toUpperCase();\n  const random = Math.floor(Math.random() * 9000) + 1000;\n  return `${prefix}-${planCode}-${random}`;\n};\n\n// Calculate discount based on risk and plan value\nconst getDiscount = (riskLevel, plan) => {\n  if (riskLevel === 'high') return plan === 'Enterprise' ? 25 : 20;\n  if (riskLevel === 'medium') return 10;\n  return 0;\n};\n\nreturn [{\n  json: {\n    ...customer,\n    ...analysis,\n    retention_code: generateRetentionCode(analysis.risk_level, customer.plan),\n    discount_percentage: getDiscount(analysis.risk_level, customer.plan),\n    code_valid_days: analysis.risk_level === 'high' ? 14 : 30,\n    analyzed_at: $now.toISO()\n  }\n}];"
+      },
+      "id": "cs4d5e6f-4444-5555-6666-777788889999",
+      "name": "Generate Retention Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [940, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "number": [
+                  {
+                    "value1": "={{ JSON.parse($('AI Health Score Analysis').first().json.message.content).health_score }}",
+                    "operation": "smaller",
+                    "value2": 40
+                  }
+                ]
+              },
+              "outputKey": "high_risk"
+            },
+            {
+              "conditions": {
+                "number": [
+                  {
+                    "value1": "={{ JSON.parse($('AI Health Score Analysis').first().json.message.content).health_score }}",
+                    "operation": "smaller",
+                    "value2": 70
+                  }
+                ]
+              },
+              "outputKey": "medium_risk"
+            }
+          ]
+        },
+        "fallbackOutputKey": "healthy"
+      },
+      "id": "cs5e6f7a-5555-6666-7777-888899990000",
+      "name": "Route by Health Score",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1170, 300]
+    },
+    {
+      "parameters": {
+        "channel": "#customer-success-alerts",
+        "text": "= HIGH RISK CUSTOMER ALERT\n\n Customer: {{ $json.customer_name }}\n📧 Email: {{ $json.email }}\n💼 Plan: {{ $json.plan }}\n📊 Health Score: {{ JSON.parse($('AI Health Score Analysis').first().json.message.content).health_score }}/100\n Churn Probability: {{ JSON.parse($('AI Health Score Analysis').first().json.message.content).churn_probability }}%\n\n⚠️ Top Risk Factors:\n{{ JSON.parse($('AI Health Score Analysis').first().json.message.content).top_risk_factors.map((f, i) => `${i+1}. ${f}`).join('\\n') }}\n\n🎁 Retention Code Generated: {{ $json.retention_code }} ({{ $json.discount_percentage }}% off)\n\n Immediate action required! Contact customer within 24 hours.",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "cs6f7a8b-6666-7777-8888-999900001111",
+      "name": "Slack Alert High Risk",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1400, 150]
+    },
+    {
+      "parameters": {
+        "fromEmail": "success@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=We Value You! Special Offer Inside - {{ $json.customer_name }}",
+        "emailType": "text",
+        "message": "=Dear {{ $json.customer_name }},\n\nWe've noticed you might not be getting the full value from our platform, and we want to help.\n\nAs a valued {{ $json.plan }} customer, we'd like to offer you an exclusive {{ $json.discount_percentage }}% discount on your next renewal.\n\nYour Personal Code: {{ $json.retention_code }}\nValid for: {{ $json.code_valid_days }} days\n\nAdditionally, we'd love to schedule a free 1-on-1 consultation with our success team to help you maximize your results.\n\nBook your session here: [Calendar Link]\n\nWe're committed to your success.\n\nBest regards,\nCustomer Success Team",
+        "options": {}
+      },
+      "id": "cs7a8b9c-7777-8888-9999-000011112222",
+      "name": "Send Retention Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1630, 150]
+    },
+    {
+      "parameters": {
+        "fromEmail": "success@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Checking In - How Can We Help You Succeed?",
+        "emailType": "text",
+        "message": "=Dear {{ $json.customer_name }},\n\nWe hope you're enjoying your {{ $json.plan }} plan!\n\nWe wanted to check in and share some resources that might help you get even more value:\n\n📚 Recommended Resources:\n- [Advanced Tutorial Link]\n- [Best Practices Guide]\n- [Video Walkthrough]\n\nIf you have any questions or would like personalized guidance, our team is here to help.\n\nSchedule a quick call: [Calendar Link]\n\nBest regards,\nCustomer Success Team",
+        "options": {}
+      },
+      "id": "cs8b9c0d-8888-9999-0000-111122223333",
+      "name": "Send Check-in Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "success@yourcompany.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=Thank You! + Exclusive Upgrade Opportunity",
+        "emailType": "text",
+        "message": "=Dear {{ $json.customer_name }},\n\nThank you for being an amazing customer! We're thrilled to have you with us.\n\nSince you're getting great value from our {{ $json.plan }} plan, we'd love your feedback:\n\n⭐ Leave a Testimonial: [Testimonial Link]\n\nAlso, we have an exclusive offer for you:\n🚀 Upgrade to {{ $json.plan === 'Pro' ? 'Enterprise' : 'Pro' }} and get 15% off for the first 3 months.\nUse code: UPGRADE15\n\nInterested? Reply to this email and we'll set it up for you.\n\nBest regards,\nCustomer Success Team",
+        "options": {}
+      },
+      "id": "cs9c0d1e-9999-0000-1111-222233334444",
+      "name": "Send Upsell Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1400, 450]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "HealthScoreLog",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "customer_name": "={{ $json.customer_name }}",
+            "email": "={{ $json.email }}",
+            "plan": "={{ $json.plan }}",
+            "health_score": "={{ JSON.parse($('AI Health Score Analysis').first().json.message.content).health_score }}",
+            "risk_level": "={{ JSON.parse($('AI Health Score Analysis').first().json.message.content).risk_level }}",
+            "churn_probability": "={{ JSON.parse($('AI Health Score Analysis').first().json.message.content).churn_probability }}",
+            "action_taken": "={{ $json.risk_level === 'high' ? 'Retention Email + Slack Alert' : $json.risk_level === 'medium' ? 'Check-in Email' : 'Upsell Email' }}",
+            "retention_code": "={{ $json.retention_code }}",
+            "analyzed_at": "={{ $json.analyzed_at }}"
+          },
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "cs0d1e2f-0000-1111-2222-333344445555",
+      "name": "Log to CRM",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1860, 300]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 1 * *"
+            }
+          ]
+        }
+      },
+      "id": "cs1e2f3a-1111-2222-3333-444455556666",
+      "name": "Monthly Report Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 700]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "HealthScoreLog",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "cs2f3a4b-2222-3333-4444-555566667777",
+      "name": "Fetch Monthly Health Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [480, 700]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4",
+          "mode": "id"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Generate a monthly Customer Success report from this health score data:\n\n{{ JSON.stringify($input.first().json) }}\n\nProvide a JSON response with:\n- total_customers_analyzed (number)\n- high_risk_count (number)\n- medium_risk_count (number)\n- healthy_count (number)\n- avg_health_score (number)\n- predicted_churn_rate (percentage)\n- retention_campaigns_sent (number)\n- estimated_revenue_saved (number, in USD)\n- top_churn_reasons (array of 3 reasons)\n- monthly_summary (3-4 sentences)\n- strategic_recommendations (array of 4 actionable items for leadership)\n\nReturn only valid JSON."
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.4
+        }
+      },
+      "id": "cs3a4b5c-3333-4444-5555-666677778888",
+      "name": "AI Monthly Report Generation",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.3,
+      "position": [710, 700]
+    },
+    {
+      "parameters": {
+        "fromEmail": "success@yourcompany.com",
+        "toEmail": "leadership@yourcompany.com",
+        "subject": "=Monthly Customer Success & Churn Prevention Report - {{ $now.toFormat('yyyy-MM') }}",
+        "emailType": "text",
+        "message": "=Dear Leadership Team,\n\nHere is your monthly Customer Success report:\n\n📊 KEY METRICS:\n- Total Customers Analyzed: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).total_customers_analyzed }}\n- High Risk: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).high_risk_count }}\n- Medium Risk: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).medium_risk_count }}\n- Healthy: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).healthy_count }}\n- Average Health Score: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).avg_health_score }}/100\n- Predicted Churn Rate: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).predicted_churn_rate }}%\n- Retention Campaigns Sent: {{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).retention_campaigns_sent }}\n- Estimated Revenue Saved: ${{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).estimated_revenue_saved }}\n\n📝 MONTHLY SUMMARY:\n{{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).monthly_summary }}\n\n⚠️ TOP CHURN REASONS:\n{{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).top_churn_reasons.map((r, i) => `${i+1}. ${r}`).join('\\n') }}\n\n🎯 STRATEGIC RECOMMENDATIONS:\n{{ JSON.parse($('AI Monthly Report Generation').first().json.message.content).strategic_recommendations.map((r, i) => `${i+1}. ${r}`).join('\\n') }}\n\nBest regards,\nCustomer Success Automation System",
+        "options": {}
+      },
+      "id": "cs4b5c6d-4444-5555-6666-777788889999",
+      "name": "Send Monthly Report",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [940, 700]
+    }
+  ],
+  "connections": {
+    "Weekly Health Check Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Customer Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Customer Data": {
+      "main": [
+        [
+          {
+            "node": "AI Health Score Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Health Score Analysis": {
+      "main": [
+        [
+          {
+            "node": "Generate Retention Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Retention Code": {
+      "main": [
+        [
+          {
+            "node": "Route by Health Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Health Score": {
+      "main": [
+        [
+          {
+            "node": "Slack Alert High Risk",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Check-in Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Upsell Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack Alert High Risk": {
+      "main": [
+        [
+          {
+            "node": "Send Retention Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Retention Email": {
+      "main": [
+        [
+          {
+            "node": "Log to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Check-in Email": {
+      "main": [
+        [
+          {
+            "node": "Log to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Upsell Email": {
+      "main": [
+        [
+          {
+            "node": "Log to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Monthly Report Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Monthly Health Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Monthly Health Data": {
+      "main": [
+        [
+          {
+            "node": "AI Monthly Report Generation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Monthly Report Generation": {
+      "main": [
+        [
+          {
+            "node": "Send Monthly Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
