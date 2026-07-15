@@ -1,0 +1,182 @@
+{
+  "name": "21-ai-resume-screening-supabase",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-screening",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-1111-4444-8888-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "resume-screening-webhook-21"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert HR recruiter. Analyze the provided resume text. Extract the candidate's name, give a score from 0 to 100 based on technical skills and experience, and write a 2-sentence summary. Respond ONLY in valid JSON format with keys: \"name\", \"score\", \"summary\"."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.resume_text }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "a1b2c3d4-2222-4444-8888-000000000002",
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [460, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "tableId": "candidates",
+        "fields": {
+          "name": "={{ JSON.parse($json.content).name }}",
+          "score": "={{ JSON.parse($json.content).score }}",
+          "summary": "={{ JSON.parse($json.content).summary }}",
+          "status": "={{ JSON.parse($json.content).score >= 80 ? 'Shortlisted' : 'Rejected' }}"
+        }
+      },
+      "id": "a1b2c3d4-3333-4444-8888-000000000003",
+      "name": "Supabase",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [680, 400],
+      "credentials": {
+        "supabaseApi": {
+          "id": "2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ JSON.parse($node['OpenAI'].json.content).score }}",
+              "rightValue": 80,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-4444-4444-8888-000000000004",
+      "name": "IF",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0123456789",
+          "mode": "list",
+          "cachedResultName": "hr-alerts"
+        },
+        "text": "🚀 *New Top Candidate Alert!*\n\n*Name:* {{ JSON.parse($node['OpenAI'].json.content).name }}\n*Score:* {{ JSON.parse($node['OpenAI'].json.content).score }}/100\n*Summary:* {{ JSON.parse($node['OpenAI'].json.content).summary }}\n\nPlease review in Supabase dashboard.",
+        "otherOptions": {}
+      },
+      "id": "a1b2c3d4-5555-4444-8888-000000000005",
+      "name": "Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1120, 320],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase": {
+      "main": [
+        [
+          {
+            "node": "IF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF": {
+      "main": [
+        [
+          {
+            "node": "Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "21-ai-resume-screening-supabase",
+  "tags": []
+}
