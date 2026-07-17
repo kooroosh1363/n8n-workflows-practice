@@ -1,0 +1,238 @@
+{
+  "name": "23-ai-support-ticket-routing-escalation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-ticket",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c3d4e5f6-1111-4444-8888-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "support-ticket-webhook-23"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert IT support triage agent. Analyze the provided support ticket. Extract the sentiment, urgency, category, and a 1-sentence summary. Respond ONLY in valid JSON format with exactly these keys: \"sentiment\" (values: positive, neutral, negative), \"urgency\" (values: critical, high, medium, low), \"category\" (values: technical, billing, feature), \"summary\" (string)."
+            },
+            {
+              "role": "user",
+              "content": "Subject: {{ $json.subject }}\nMessage: {{ $json.message }}\nCustomer Email: {{ $json.email }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "c3d4e5f6-2222-4444-8888-000000000002",
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [460, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT client_tier FROM clients WHERE email = '{{ $json.email }}' LIMIT 1;",
+        "options": {}
+      },
+      "id": "c3d4e5f6-3333-4444-8888-000000000003",
+      "name": "PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond1",
+                    "leftValue": "={{ JSON.parse($node['OpenAI'].json.content).urgency }}",
+                    "rightValue": "critical",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  },
+                  {
+                    "id": "cond2",
+                    "leftValue": "={{ $json.client_tier }}",
+                    "rightValue": "VIP",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "default"
+        }
+      },
+      "id": "c3d4e5f6-4444-4444-8888-000000000004",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C1122334455",
+          "mode": "list",
+          "cachedResultName": "it-escalation-alerts"
+        },
+        "text": "🚨 *CRITICAL VIP ESCALATION* 🚨\n\n👤 *Customer:* {{ $json.email }} (VIP)\n📝 *Subject:* {{ $node['Webhook'].json.subject }}\n⚠️ *Urgency:* {{ JSON.parse($node['OpenAI'].json.content).urgency }}\n🏷️ *Category:* {{ JSON.parse($node['OpenAI'].json.content).category }}\n💬 *Summary:* {{ JSON.parse($node['OpenAI'].json.content).summary }}\n\n@here Immediate attention required!",
+        "otherOptions": {}
+      },
+      "id": "c3d4e5f6-5555-4444-8888-000000000005",
+      "name": "Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1120, 320],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "project": {
+          "__rl": true,
+          "value": "SUP",
+          "mode": "list",
+          "cachedResultName": "Support"
+        },
+        "issueType": {
+          "__rl": true,
+          "value": "Task",
+          "mode": "list",
+          "cachedResultName": "Task"
+        },
+        "summary": "={{ $node['Webhook'].json.subject }}",
+        "description": "Customer: {{ $json.email }}\nTier: {{ $json.client_tier }}\nCategory: {{ JSON.parse($node['OpenAI'].json.content).category }}\nSummary: {{ JSON.parse($node['OpenAI'].json.content).summary }}\n\nOriginal Message:\n{{ $node['Webhook'].json.message }}",
+        "priority": "={{ $node['Switch'].context.outputIndex === 0 ? 'Highest' : 'Medium' }}",
+        "additionalFields": {
+          "labels": "={{ JSON.parse($node['OpenAI'].json.content).category }},{{ $json.client_tier }}"
+        }
+      },
+      "id": "c3d4e5f6-6666-4444-8888-000000000006",
+      "name": "Jira",
+      "type": "n8n-nodes-base.jira",
+      "typeVersion": 2,
+      "position": [1120, 480],
+      "credentials": {
+        "jiraApi": {
+          "id": "5",
+          "name": "Jira account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Jira",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Jira",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "23-ai-support-ticket-routing-escalation",
+  "tags": []
+}
