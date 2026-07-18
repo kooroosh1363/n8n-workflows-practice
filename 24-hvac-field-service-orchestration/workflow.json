@@ -1,0 +1,278 @@
+{
+  "name": "24-hvac-field-service-orchestration",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hvac-service-request",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "d4e5f6g7-1111-4444-8888-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500],
+      "webhookId": "hvac-service-webhook-24"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert HVAC dispatch AI. Analyze the service request. Extract: 1. device_type (e.g., AC, Heater, Refrigerator), 2. issue_summary (1 sentence), 3. required_parts (array of strings, e.g., ['compressor', 'freon']), 4. urgency (critical, high, normal). Respond ONLY in valid JSON format with these exact keys."
+            },
+            {
+              "role": "user",
+              "content": "Customer: {{ $json.customer_name }}\nAddress: {{ $json.customer_address }}\nIssue Description: {{ $json.issue_description }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "d4e5f6g7-2222-4444-8888-000000000002",
+      "name": "OpenAI",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [460, 500],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, lat, lon, skills, current_load, van_inventory FROM technicians WHERE status = 'active';",
+        "options": {}
+      },
+      "id": "d4e5f6g7-3333-4444-8888-000000000003",
+      "name": "PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 500],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// الگوریتم پیچیده امتیازدهی و انتخاب بهترین تکنسین\nconst inputData = $input.first().json;\nconst customerLat = parseFloat(inputData.customer_lat);\nconst customerLon = parseFloat(inputData.customer_lon);\nconst aiAnalysis = JSON.parse(inputData.content);\nconst requiredParts = aiAnalysis.required_parts || [];\n\n// شبیه‌سازی داده‌های تکنسین‌ها (در واقعیت از PostgreSQL می‌آید)\nconst technicians = [\n  { id: 'T1', name: 'Ali Rezaei', lat: 35.70, lon: 51.40, skills: ['AC', 'Heater'], current_load: 2, van_inventory: ['freon', 'thermostat'] },\n  { id: 'T2', name: 'Mohammad Ahmadi', lat: 35.75, lon: 51.45, skills: ['AC', 'Refrigerator'], current_load: 0, van_inventory: ['compressor', 'freon'] },\n  { id: 'T3', name: 'Sara Karimi', lat: 35.68, lon: 51.38, skills: ['Heater'], current_load: 4, van_inventory: ['igniter'] }\n];\n\nlet bestTech = null;\nlet highestScore = -999;\n\n// تابع محاسبه فاصله (Haversine Formula)\nfunction getDistance(lat1, lon1, lat2, lon2) {\n  const R = 6371; // شعاع زمین به کیلومتر\n  const dLat = (lat2 - lat1) * Math.PI / 180;\n  const dLon = (lon2 - lon1) * Math.PI / 180;\n  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));\n  return R * c;\n}\n\ntechnicians.forEach(tech => {\n  // 1. بررسی تخصص\n  const hasSkill = tech.skills.includes(aiAnalysis.device_type);\n  if (!hasSkill) return;\n\n  // 2. محاسبه فاصله\n  const distance = getDistance(customerLat, customerLon, tech.lat, tech.lon);\n  const proximityScore = Math.max(0, 100 - (distance * 5)); // هر کیلومتر 5 امتیاز کسر می‌شود\n\n  // 3. بررسی موجودی قطعات\n  const partsAvailable = requiredParts.every(part => tech.van_inventory.includes(part));\n  const partsScore = partsAvailable ? 100 : 0;\n\n  // 4. محاسبه امتیاز نهایی (وزن‌دهی: 40% فاصله، 40% قطعات، 20% بار کاری معکوس)\n  const loadPenalty = tech.current_load * 15;\n  const totalScore = (proximityScore * 0.4) + (partsScore * 0.4) + ((100 - loadPenalty) * 0.2);\n\n  if (totalScore > highestScore) {\n    highestScore = totalScore;\n    bestTech = { ...tech, distance: distance.toFixed(2), partsAvailable, score: totalScore.toFixed(2) };\n  }\n});\n\n// محاسبه قیمت داینامیک\nconst basePrice = aiAnalysis.urgency === 'critical' ? 150 : 100;\nconst travelFee = bestTech ? parseFloat(bestTech.distance) * 1.5 : 0;\nconst partsFee = requiredParts.length * 25;\nconst finalPrice = (basePrice + travelFee + partsFee).toFixed(2);\n\nreturn [{\n  json: {\n    customer_name: inputData.customer_name,\n    customer_address: inputData.customer_address,\n    ai_analysis: aiAnalysis,\n    assigned_technician: bestTech,\n    final_price_usd: finalPrice,\n    parts_available: bestTech ? bestTech.partsAvailable : false\n  }\n}];"
+      },
+      "id": "d4e5f6g7-4444-4444-8888-000000000004",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 500]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "cond1",
+                    "leftValue": "={{ $json.parts_available }}",
+                    "rightValue": true,
+                    "operator": {
+                      "type": "boolean",
+                      "operation": "equal"
+                    }
+                  },
+                  {
+                    "id": "cond2",
+                    "leftValue": "={{ $json.assigned_technician }}",
+                    "rightValue": "",
+                    "operator": {
+                      "type": "object",
+                      "operation": "notEmpty"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "default"
+        }
+      },
+      "id": "d4e5f6g7-5555-4444-8888-000000000005",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 500]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "primary",
+          "mode": "list"
+        },
+        "start": "={{ new Date(Date.now() + 86400000).toISOString() }}",
+        "end": "={{ new Date(Date.now() + 90000000).toISOString() }}",
+        "summary": "Service: {{ $json.ai_analysis.device_type }} for {{ $json.customer_name }}",
+        "description": "Tech: {{ $json.assigned_technician.name }}\nAddress: {{ $json.customer_address }}\nIssue: {{ $json.ai_analysis.issue_summary }}\nEstimated Price: ${{ $json.final_price_usd }}",
+        "additionalFields": {
+          "attendees": ["tech@example.com"]
+        }
+      },
+      "id": "d4e5f6g7-6666-4444-8888-000000000006",
+      "name": "Google Calendar",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.1,
+      "position": [1340, 420],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "6",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromNumber": "+1234567890",
+        "toNumber": "+989123456789",
+        "message": "Hello {{ $json.customer_name }}. Your {{ $json.ai_analysis.device_type }} service is confirmed! Tech: {{ $json.assigned_technician.name }} will arrive tomorrow. Est. Price: ${{ $json.final_price_usd }}. Reply STOP to opt out.",
+        "options": {}
+      },
+      "id": "d4e5f6g7-7777-4444-8888-000000000007",
+      "name": "Twilio",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1560, 420],
+      "credentials": {
+        "twilioApi": {
+          "id": "7",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C9988776655",
+          "mode": "list",
+          "cachedResultName": "dispatch-manager-alerts"
+        },
+        "text": "⚠️ *SERVICE REQUEST UNASSIGNED* ⚠️\n\nCustomer: {{ $json.customer_name }}\nIssue: {{ $json.ai_analysis.issue_summary }}\nReason: No technician with required skills/parts available.\n\nAction: Manual dispatch required or order parts.",
+        "otherOptions": {}
+      },
+      "id": "d4e5f6g7-8888-4444-8888-000000000008",
+      "name": "Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1340, 580],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar": {
+      "main": [
+        [
+          {
+            "node": "Twilio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "24-hvac-field-service-orchestration",
+  "tags": []
+}
