@@ -1,0 +1,263 @@
+{
+  "name": "25-multi-db-bidirectional-sync-conflict-resolution",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "db-sync-trigger",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "e5f6g7h8-1111-4444-8888-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "multi-db-sync-webhook-25"
+    },
+    {
+      "parameters": {
+        "jsCode": "// الگوریتم تشخیص تغییر و آماده‌سازی متادیتا\nconst item = $input.first().json;\nconst source = item.source_system;\nconst recordId = item.record_id;\nconst data = item.payload_data;\nconst incomingTimestamp = new Date(item.timestamp).getTime();\n\n// ایجاد Hash ساده برای تشخیص تغییر محتوایی\nconst dataString = JSON.stringify(data);\nlet hash = 0;\nfor (let i = 0; i < dataString.length; i++) {\n  const char = dataString.charCodeAt(i);\n  hash = ((hash << 5) - hash) + char;\n  hash = hash & hash;\n}\n\nreturn [{\n  json: {\n    source_system: source,\n    record_id: recordId,\n    payload_data: data,\n    incoming_timestamp: incomingTimestamp,\n    data_hash: hash.toString(),\n    sync_version: (item.sync_version || 0) + 1,\n    is_loopback: item.is_loopback === true // پرچم ضد حلقه (Anti-Loop)\n  }\n}];"
+      },
+      "id": "e5f6g7h8-2222-4444-8888-000000000002",
+      "name": "Code: Hash & Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, data_hash, sync_version, last_updated, source_of_truth FROM central_patients WHERE id = '{{ $json.record_id }}';",
+        "options": {}
+      },
+      "id": "e5f6g7h8-3333-4444-8888-000000000003",
+      "name": "PostgreSQL: Get Existing",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// الگوریتم پیشرفته حل تعارض (Conflict Resolution)\nconst incoming = $input.first().json;\nconst dbRecord = $input.first().json.postgresResult?.[0] || null;\n\n// 1. مکانیزم ضد حلقه (Anti-Loop): اگر تغییر توسط خود سیستم sync ایجاد شده، نادیده بگیر\nif (incoming.is_loopback) {\n  return [{ json: { ...incoming, action: 'skip_loop', reason: 'Anti-loop triggered' } }];\n}\n\n// 2. اگر رکورد جدید است\nif (!dbRecord) {\n  return [{ json: { ...incoming, action: 'full_sync', reason: 'New record' } }];\n}\n\n// 3. اگر هش داده‌ها یکسان است، تغییری رخ نداده\nif (dbRecord.data_hash === incoming.data_hash) {\n  return [{ json: { ...incoming, action: 'skip_unchanged', reason: 'Data hash matches' } }];\n}\n\n// 4. تشخیص تعارض (Conflict Detection)\nconst dbTimestamp = new Date(dbRecord.last_updated).getTime();\nconst timeDiff = Math.abs(incoming.incoming_timestamp - dbTimestamp);\n\n// اگر تفاوت زمانی کمتر از 5 ثانیه باشد، تعارض همزمانی (Race Condition) در نظر گرفته می‌شود\nif (timeDiff < 5000) {\n  // استراتژی حل تعارض: اولویت منبع (Source Priority: PostgreSQL > Airtable > MySQL)\n  let winner = incoming.source_system;\n  if (dbRecord.source_of_truth === 'postgresql') winner = 'postgresql';\n  \n  return [{ \n    json: { \n      ...incoming, \n      db_record: dbRecord,\n      action: 'conflict_manual_review', \n      reason: `Race condition detected. Priority given to: ${winner}`,\n      winner: winner\n    } \n  }];\n}\n\n// 5. استراتژی پیش‌فرض: آخرین نوشتار برنده می‌شود (Last Write Wins)\nif (incoming.incoming_timestamp > dbTimestamp) {\n  return [{ json: { ...incoming, db_record: dbRecord, action: 'propagate_update', reason: 'Last Write Wins' } }];\n} else {\n  return [{ json: { ...incoming, db_record: dbRecord, action: 'skip_outdated', reason: 'Incoming data is older than DB' } }];\n}"
+      },
+      "id": "e5f6g7h8-4444-4444-8888-000000000004",
+      "name": "Code: Conflict Resolution",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "id": "c1", "leftValue": "={{ $json.action }}", "rightValue": "propagate_update", "operator": { "type": "string", "operation": "equals" } }]
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "id": "c2", "leftValue": "={{ $json.action }}", "rightValue": "conflict_manual_review", "operator": { "type": "string", "operation": "equals" } }]
+              }
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "default" }
+      },
+      "id": "e5f6g7h8-5555-4444-8888-000000000005",
+      "name": "Switch: Routing",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE central_patients SET payload_data = '{{ JSON.stringify($json.payload_data) }}', data_hash = '{{ $json.data_hash }}', sync_version = {{ $json.sync_version }}, last_updated = NOW(), source_of_truth = '{{ $json.source_system }}' WHERE id = '{{ $json.record_id }}';",
+        "options": {}
+      },
+      "id": "e5f6g7h8-6666-4444-8888-000000000006",
+      "name": "PostgreSQL: Update Central",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 320],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE legacy_patients SET name = '{{ $json.payload_data.name }}', phone = '{{ $json.payload_data.phone }}', last_sync = NOW() WHERE id = '{{ $json.record_id }}';",
+        "options": {}
+      },
+      "id": "e5f6g7h8-7777-4444-8888-000000000007",
+      "name": "MySQL: Propagate to Legacy",
+      "type": "n8n-nodes-base.mysql",
+      "typeVersion": 2.2,
+      "position": [1560, 320],
+      "credentials": {
+        "mySql": {
+          "id": "8",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sync_audit_log (record_id, source_system, action_taken, reason, timestamp) VALUES ('{{ $json.record_id }}', '{{ $json.source_system }}', '{{ $json.action }}', '{{ $json.reason }}', NOW());",
+        "options": {}
+      },
+      "id": "e5f6g7h8-8888-4444-8888-000000000008",
+      "name": "PostgreSQL: Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 480],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C0000000000",
+          "mode": "list",
+          "cachedResultName": "db-sync-alerts"
+        },
+        "text": "🚨 *DATA CONFLICT DETECTED* 🚨\n\n📝 *Record ID:* {{ $json.record_id }}\n🔄 *Source:* {{ $json.source_system }}\n⚠️ *Reason:* {{ $json.reason }}\n🏆 *Resolution:* Priority given to {{ $json.winner }}\n\n🔗 Please review the `sync_audit_log` table for manual intervention if needed.",
+        "otherOptions": {}
+      },
+      "id": "e5f6g7h8-9999-4444-8888-000000000009",
+      "name": "Slack: Conflict Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1560, 480],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code: Hash & Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Hash & Metadata": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Get Existing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Get Existing": {
+      "main": [
+        [
+          {
+            "node": "Code: Conflict Resolution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Conflict Resolution": {
+      "main": [
+        [
+          {
+            "node": "Switch: Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Routing": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Update Central",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL: Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL: Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Update Central": {
+      "main": [
+        [
+          {
+            "node": "MySQL: Propagate to Legacy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Audit Log": {
+      "main": [
+        [
+          {
+            "node": "Slack: Conflict Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "25-multi-db-bidirectional-sync-conflict-resolution",
+  "tags": []
+}
