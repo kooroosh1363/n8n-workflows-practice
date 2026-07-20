@@ -1,0 +1,341 @@
+{
+  "name": "26-ai-customer-churn-prediction-retention",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAt": "08:00"
+            }
+          ]
+        }
+      },
+      "id": "f6g7h8i9-1111-4444-8888-000000000001",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.schedule",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT customer_id, name, email, phone, last_visit_date, visit_count, avg_spend, complaint_count, survey_score FROM customer_interactions WHERE is_active = true;",
+        "options": {}
+      },
+      "id": "f6g7h8i9-2222-4444-8888-000000000002",
+      "name": "PostgreSQL: Fetch Customers",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// آماده‌سازی داده‌ها برای تحلیل AI\nconst items = $input.all();\nconst today = new Date();\n\nreturn items.map(item => {\n  const data = item.json;\n  const daysSinceLastVisit = Math.floor((today - new Date(data.last_visit_date)) / (1000 * 60 * 60 * 24));\n  \n  return {\n    json: {\n      customer_id: data.customer_id,\n      name: data.name,\n      email: data.email,\n      phone: data.phone,\n      days_since_last_visit: daysSinceLastVisit,\n      visit_count: data.visit_count,\n      avg_spend: data.avg_spend,\n      complaint_count: data.complaint_count,\n      survey_score: data.survey_score,\n      ai_prompt: `Customer: ${data.name}. Days since last visit: ${daysSinceLastVisit}. Total visits: ${data.visit_count}. Avg spend: $${data.avg_spend}. Complaints: ${data.complaint_count}. Last survey score: ${data.survey_score}/10. Predict churn probability (0-100), risk_level (High, Medium, Low), and generate a personalized retention offer.`\n    }\n  };\n});"
+      },
+      "id": "f6g7h8i9-3333-4444-8888-000000000003",
+      "name": "Code: Feature Engineering",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert Customer Retention AI. Analyze the customer data. Output ONLY valid JSON with these exact keys: 'churn_probability' (integer 0-100), 'risk_level' (string: 'High', 'Medium', or 'Low'), 'personalized_offer' (string: a specific, compelling discount or perk based on their history), and 'reasoning' (string: 1 sentence explaining the risk)."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.ai_prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "f6g7h8i9-4444-4444-8888-000000000004",
+      "name": "OpenAI: Churn Prediction",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [900, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "id": "c1", "leftValue": "={{ JSON.parse($json.content).risk_level }}", "rightValue": "High", "operator": { "type": "string", "operation": "equals" } }]
+              }
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "id": "c2", "leftValue": "={{ JSON.parse($json.content).risk_level }}", "rightValue": "Medium", "operator": { "type": "string", "operation": "equals" } }]
+              }
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "default" }
+      },
+      "id": "f6g7h8i9-5555-4444-8888-000000000005",
+      "name": "Switch: Risk Routing",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "We Miss You, {{ $json.name }}! Here's a Special Gift 🎁",
+        "emailType": "text",
+        "message": "Dear {{ $json.name }},\n\nWe noticed it's been a while since your last visit. We value you as a customer!\n\nAs a token of our appreciation, here is your exclusive offer: {{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).personalized_offer }}\n\nReply to this email or call us to book your next appointment.\n\nWarm regards,\nClinic Management Team",
+        "options": {}
+      },
+      "id": "f6g7h8i9-6666-4444-8888-000000000006",
+      "name": "Gmail: Retention Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1340, 320],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "9",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromNumber": "+1234567890",
+        "toNumber": "={{ $json.phone }}",
+        "message": "Hi {{ $json.name }}! We miss you. Enjoy {{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).personalized_offer }}. Book now: https://clinic.example.com/book",
+        "options": {}
+      },
+      "id": "f6g7h8i9-7777-4444-8888-000000000007",
+      "name": "Twilio: SMS Alert",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1560, 320],
+      "credentials": {
+        "twilioApi": {
+          "id": "7",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO churn_predictions (customer_id, prediction_date, churn_probability, risk_level, offer_sent, channels_used) VALUES ('{{ $json.customer_id }}', NOW(), {{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).churn_probability }}, '{{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).risk_level }}', '{{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).personalized_offer }}', 'Email,SMS') ON CONFLICT (customer_id, prediction_date) DO NOTHING;",
+        "options": {}
+      },
+      "id": "f6g7h8i9-8888-4444-8888-000000000008",
+      "name": "PostgreSQL: Log Prediction",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 480],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.has_responded_or_booked }}",
+              "rightValue": false,
+              "operator": { "type": "boolean", "operation": "equal" }
+            },
+            {
+              "id": "cond2",
+              "leftValue": "={{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).risk_level }}",
+              "rightValue": "High",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f6g7h8i9-9999-4444-8888-000000000009",
+      "name": "IF: 7-Day Response Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 480]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C1111222233",
+          "mode": "list",
+          "cachedResultName": "branch-manager-escalations"
+        },
+        "text": "🚨 *CHURN ESCALATION REQUIRED* 🚨\n\n👤 *Customer:* {{ $json.name }} (ID: {{ $json.customer_id }})\n📉 *Churn Probability:* {{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).churn_probability }}%\n⚠️ *Risk Level:* High\n📝 *Reasoning:* {{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).reasoning }}\n🎁 *Offer Sent:* {{ JSON.parse($node['OpenAI: Churn Prediction'].json.content).personalized_offer }}\n\n⏳ *Status:* No response after 7 days. Please make a direct phone call.",
+        "otherOptions": {}
+      },
+      "id": "f6g7h8i9-0000-4444-8888-000000000010",
+      "name": "Slack: Manager Escalation",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1780, 420],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Fetch Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Fetch Customers": {
+      "main": [
+        [
+          {
+            "node": "Code: Feature Engineering",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Feature Engineering": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Churn Prediction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Churn Prediction": {
+      "main": [
+        [
+          {
+            "node": "Switch: Risk Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Risk Routing": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Retention Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Gmail: Retention Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL: Log Prediction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Retention Email": {
+      "main": [
+        [
+          {
+            "node": "Twilio: SMS Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio: SMS Alert": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Log Prediction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Log Prediction": {
+      "main": [
+        [
+          {
+            "node": "IF: 7-Day Response Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: 7-Day Response Check": {
+      "main": [
+        [
+          {
+            "node": "Slack: Manager Escalation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "26-ai-customer-churn-prediction-retention",
+  "tags": []
+}
