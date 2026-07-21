@@ -1,0 +1,242 @@
+{
+  "name": "27-ai-invoice-ocr-anomaly-detection",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "g7h8i9j0-1111-4444-8888-000000000001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "invoice-upload-webhook-27"
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert Financial AI Auditor. Analyze the provided invoice text. Extract: vendor_name, invoice_number, po_number, total_amount, and items (array of {description, amount}). ALSO, perform Anomaly Detection: check if the sum of items matches total_amount, if the date is in the future, or if the vendor name looks suspicious. Respond ONLY in valid JSON format with these exact keys: 'vendor_name', 'invoice_number', 'po_number', 'total_amount', 'items_sum', 'ai_anomaly_detected' (boolean), 'anomaly_reason' (string, or 'None' if valid)."
+            },
+            {
+              "role": "user",
+              "content": "Invoice Text Data:\n{{ $json.invoice_text }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "g7h8i9j0-2222-4444-8888-000000000002",
+      "name": "OpenAI: OCR & Anomaly Check",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [460, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as dup_count FROM processed_invoices WHERE invoice_number = '{{ JSON.parse($json.content).invoice_number }}';",
+        "options": {}
+      },
+      "id": "g7h8i9j0-3333-4444-8888-000000000003",
+      "name": "PostgreSQL: Check Duplicate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// منطق نهایی تصمیم‌گیری و اعتبارسنجی\nconst aiResult = JSON.parse($node['OpenAI: OCR & Anomaly Check'].json.content);\nconst dbResult = $input.first().json;\nconst dupCount = parseInt(dbResult.dup_count || 0);\n\nlet finalStatus = 'approved';\nlet rejectionReason = 'None';\n\n// 1. بررسی تکراری بودن\nif (dupCount > 0) {\n  finalStatus = 'flagged';\n  rejectionReason = 'Duplicate invoice number detected in database.';\n}\n// 2. بررسی ناهنجاری هوش مصنوعی\nelse if (aiResult.ai_anomaly_detected === true) {\n  finalStatus = 'flagged';\n  rejectionReason = `AI Anomaly: ${aiResult.anomaly_reason}`;\n}\n// 3. بررسی ریاضی ساده (اختیاری، اگر AI انجام نداده باشد)\nelse if (Math.abs(aiResult.items_sum - aiResult.total_amount) > 0.01) {\n  finalStatus = 'flagged';\n  rejectionReason = `Math mismatch: Items sum (${aiResult.items_sum}) does not equal Total (${aiResult.total_amount}).`;\n}\n\nreturn [{\n  json: {\n    vendor_name: aiResult.vendor_name,\n    invoice_number: aiResult.invoice_number,\n    po_number: aiResult.po_number,\n    total_amount: aiResult.total_amount,\n    final_status: finalStatus,\n    rejection_reason: rejectionReason,\n    ai_anomaly_detected: aiResult.ai_anomaly_detected\n  }\n}];"
+      },
+      "id": "g7h8i9j0-4444-4444-8888-000000000004",
+      "name": "Code: Final Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [{ "id": "c1", "leftValue": "={{ $json.final_status }}", "rightValue": "approved", "operator": { "type": "string", "operation": "equals" } }]
+              }
+            }
+          ]
+        },
+        "options": { "fallbackOutput": "default" }
+      },
+      "id": "g7h8i9j0-5555-4444-8888-000000000005",
+      "name": "Switch: Routing",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO processed_invoices (vendor_name, invoice_number, po_number, total_amount, status, processed_at) VALUES ('{{ $json.vendor_name }}', '{{ $json.invoice_number }}', '{{ $json.po_number }}', {{ $json.total_amount }}, 'APPROVED', NOW());",
+        "options": {}
+      },
+      "id": "g7h8i9j0-6666-4444-8888-000000000006",
+      "name": "PostgreSQL: Insert Approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 320],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C2222333344",
+          "mode": "list",
+          "cachedResultName": "finance-alerts"
+        },
+        "text": "🚨 *INVOICE FLAGGED FOR REVIEW* 🚨\n\n🏢 *Vendor:* {{ $json.vendor_name }}\n🧾 *Invoice #:* {{ $json.invoice_number }}\n💰 *Amount:* ${{ $json.total_amount }}\n❌ *Reason:* {{ $json.rejection_reason }}\n\n🔗 Action Required: Please review in the Finance Dashboard.",
+        "otherOptions": {}
+      },
+      "id": "g7h8i9j0-7777-4444-8888-000000000007",
+      "name": "Slack: Finance Alert",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1340, 480],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO audit_log (invoice_number, action_taken, reason, timestamp) VALUES ('{{ $json.invoice_number }}', 'FLAGGED', '{{ $json.rejection_reason }}', NOW());",
+        "options": {}
+      },
+      "id": "g7h8i9j0-8888-4444-8888-000000000008",
+      "name": "PostgreSQL: Audit Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1560, 480],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: OCR & Anomaly Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: OCR & Anomaly Check": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Code: Final Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Final Validation": {
+      "main": [
+        [
+          {
+            "node": "Switch: Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch: Routing": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Insert Approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack: Finance Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Finance Alert": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Audit Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "27-ai-invoice-ocr-anomaly-detection",
+  "tags": []
+}
