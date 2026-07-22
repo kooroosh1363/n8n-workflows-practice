@@ -1,0 +1,307 @@
+{
+  "name": "28-bi-etl-kpi-dashboard-automated-reporting",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAt": "08:00",
+              "triggerAtDay": [1]
+            }
+          ]
+        }
+      },
+      "id": "h8i9j0k1-1111-4444-8888-000000000001",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.schedule",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(MAX(last_sync), '2020-01-01'::timestamp) as watermark FROM bi_sync_status WHERE source = 'main_db';",
+        "options": {}
+      },
+      "id": "h8i9j0k1-2222-4444-8888-000000000002",
+      "name": "PostgreSQL: Get Watermark",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*) as new_users, SUM(revenue) as total_revenue FROM user_transactions WHERE created_at >= '{{ $json.watermark }}';",
+        "options": {}
+      },
+      "id": "h8i9j0k1-3333-4444-8888-000000000003",
+      "name": "PostgreSQL: Incremental Extract",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 320],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.stripe.com/v1/events?limit=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "type",
+              "value": "invoice.payment_succeeded"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "h8i9j0k1-4444-4444-8888-000000000004",
+      "name": "HTTP Request: Stripe",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 480],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "10",
+          "name": "Stripe API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// محاسبات پیشرفته KPI و تجمیع داده‌ها\nconst dbData = $node['PostgreSQL: Incremental Extract'].json;\nconst stripeData = $node['HTTP Request: Stripe'].json.data || [];\n\n// شبیه‌سازی محاسبات (در واقعیت از داده‌های واقعی استفاده می‌شود)\nconst newUsers = parseInt(dbData.new_users) || 0;\nconst dbRevenue = parseFloat(dbData.total_revenue) || 0;\nconst stripeRevenue = stripeData.reduce((sum, event) => sum + (event.data.object.amount_paid / 100), 0);\nconst totalRevenue = dbRevenue + stripeRevenue;\n\n// محاسبات KPI (فرمول‌های ساده‌شده برای نمونه)\nconst cac = newUsers > 0 ? 5000 / newUsers : 0; // فرض هزینه بازاریابی 5000\nconst ltv = totalRevenue / (newUsers || 1) * 12; // پیش‌بینی سالانه\nconst churnRate = 2.5; // درصد فرضی\nconst mrr = totalRevenue; \n\n// تشخیص ناهنجاری (Anomaly Detection)\nconst churnWarning = churnRate > 5.0 ? '⚠️ هشدار: نرخ ریزش بالاتر از حد مجاز (5%) است!' : '✅ نرمال';\n\nreturn [{\n  json: {\n    report_date: new Date().toISOString().split('T')[0],\n    new_users: newUsers,\n    total_revenue: totalRevenue.toFixed(2),\n    mrr: mrr.toFixed(2),\n    cac: cac.toFixed(2),\n    ltv: ltv.toFixed(2),\n    churn_rate: churnRate,\n    churn_warning: churnWarning,\n    new_watermark: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "h8i9j0k1-5555-4444-8888-000000000005",
+      "name": "Code: KPI Calculation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bi_kpi_summary (report_date, new_users, total_revenue, mrr, cac, ltv, churn_rate) VALUES ('{{ $json.report_date }}', {{ $json.new_users }}, {{ $json.total_revenue }}, {{ $json.mrr }}, {{ $json.cac }}, {{ $json.ltv }}, {{ $json.churn_rate }}) ON CONFLICT (report_date) DO UPDATE SET new_users = EXCLUDED.new_users, total_revenue = EXCLUDED.total_revenue, mrr = EXCLUDED.mrr, cac = EXCLUDED.cac, ltv = EXCLUDED.ltv, churn_rate = EXCLUDED.churn_rate;",
+        "options": {}
+      },
+      "id": "h8i9j0k1-6666-4444-8888-000000000006",
+      "name": "PostgreSQL: Load to BI",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1120, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// تولید گزارش HTML پویا و زیبا\nconst data = $input.first().json;\nconst churnColor = data.churn_rate > 5.0 ? '#dc3545' : '#28a745';\n\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n  <style>\n    body { font-family: Arial, sans-serif; color: #333; }\n    .header { background: #007bff; color: white; padding: 20px; text-align: center; }\n    .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; padding: 20px; }\n    .kpi-card { background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid #dee2e6; }\n    .kpi-value { font-size: 24px; font-weight: bold; color: #007bff; }\n    .kpi-label { font-size: 14px; color: #6c757d; margin-top: 5px; }\n    .alert { background: #fff3cd; color: #856404; padding: 15px; margin: 20px; border-radius: 5px; border-left: 4px solid #ffc107; }\n  </style>\n</head>\n<body>\n  <div class=\"header\"><h1>Weekly BI Executive Report</h1><p>Date: ${data.report_date}</p></div>\n  <div class=\"kpi-grid\">\n    <div class=\"kpi-card\"><div class=\"kpi-value\">$${data.mrr}</div><div class=\"kpi-label\">Monthly Recurring Revenue (MRR)</div></div>\n    <div class=\"kpi-card\"><div class=\"kpi-value\">${data.new_users}</div><div class=\"kpi-label\">New Users Acquired</div></div>\n    <div class=\"kpi-card\"><div class=\"kpi-value\">$${data.cac}</div><div class=\"kpi-label\">Customer Acquisition Cost (CAC)</div></div>\n    <div class=\"kpi-card\"><div class=\"kpi-value\">$${data.ltv}</div><div class=\"kpi-label\">Lifetime Value (LTV)</div></div>\n    <div class=\"kpi-card\"><div class=\"kpi-value\" style=\"color: ${churnColor}\">${data.churn_rate}%</div><div class=\"kpi-label\">Churn Rate</div></div>\n    <div class=\"kpi-card\"><div class=\"kpi-value\">$${data.total_revenue}</div><div class=\"kpi-label\">Total Period Revenue</div></div>\n  </div>\n  ${data.churn_rate > 5.0 ? `<div class=\"alert\">${data.churn_warning}</div>` : ''}\n  <p style=\"text-align: center; color: #6c757d; font-size: 12px;\">Generated automatically by n8n BI Pipeline</p>\n</body>\n</html>`;\n\nreturn [{ json: { html_report: html, ...data } }];"
+      },
+      "id": "h8i9j0k1-7777-4444-8888-000000000007",
+      "name": "Code: HTML Report Gen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "executives@company.com",
+        "subject": "📊 Weekly BI Executive Report - {{ $json.report_date }}",
+        "emailType": "html",
+        "message": "={{ $json.html_report }}",
+        "options": {}
+      },
+      "id": "h8i9j0k1-8888-4444-8888-000000000008",
+      "name": "Gmail: Send Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1560, 320],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "9",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C3333444455",
+          "mode": "list",
+          "cachedResultName": "executive-bi-reports"
+        },
+        "text": "📊 *Weekly BI Report Ready*\n\n📅 *Date:* {{ $json.report_date }}\n💰 *MRR:* ${{ $json.mrr }}\n👥 *New Users:* {{ $json.new_users }}\n📉 *Churn Rate:* {{ $json.churn_rate }}%\n\n{{ $json.churn_warning }}\n\n🔗 *Live Dashboard:* https://dashboard.company.com/bi\n📧 Full HTML report sent to executives' email.",
+        "otherOptions": {}
+      },
+      "id": "h8i9j0k1-9999-4444-8888-000000000009",
+      "name": "Slack: Executive Summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1560, 480],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO bi_sync_status (source, last_sync) VALUES ('main_db', '{{ $json.new_watermark }}') ON CONFLICT (source) DO UPDATE SET last_sync = EXCLUDED.last_sync;",
+        "options": {}
+      },
+      "id": "h8i9j0k1-0000-4444-8888-000000000010",
+      "name": "PostgreSQL: Update Watermark",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1780, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Get Watermark",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Get Watermark": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Incremental Extract",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request: Stripe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Incremental Extract": {
+      "main": [
+        [
+          {
+            "node": "Code: KPI Calculation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request: Stripe": {
+      "main": [
+        [
+          {
+            "node": "Code: KPI Calculation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: KPI Calculation": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Load to BI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Load to BI": {
+      "main": [
+        [
+          {
+            "node": "Code: HTML Report Gen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: HTML Report Gen": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Send Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack: Executive Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send Report": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Update Watermark",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Executive Summary": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Update Watermark",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "28-bi-etl-kpi-dashboard-automated-reporting",
+  "tags": []
+}
