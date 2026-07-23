@@ -1,0 +1,451 @@
+{
+  "name": "29-ai-hyper-personalized-multi-channel-marketing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAt": "09:00"
+            }
+          ]
+        }
+      },
+      "id": "i9j0k1l2-1111-4444-8888-000000000001",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.schedule",
+      "typeVersion": 1,
+      "position": [240, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, name, email, phone, country, job_title, pages_visited, interests, signup_date FROM users WHERE signup_date >= NOW() - INTERVAL '7 days' AND last_engagement_date IS NULL AND campaign_status = 'new';",
+        "options": {}
+      },
+      "id": "i9j0k1l2-2222-4444-8888-000000000002",
+      "name": "PostgreSQL: Fetch Inactive Users",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert marketing copywriter specializing in hyper-personalized outreach. Based on the user data provided, generate: 1) A compelling, curiosity-inducing email subject line (max 50 chars), 2) A fully personalized email body (150-200 words) that directly addresses their specific interests or pain points, 3) Choose the appropriate tone (formal for executives, friendly for students). Respond ONLY in valid JSON format with keys: 'subject', 'email_body', 'tone'."
+            },
+            {
+              "role": "user",
+              "content": "User Data:\nName: {{ $json.name }}\nCountry: {{ $json.country }}\nJob Title: {{ $json.job_title }}\nPages Visited: {{ $json.pages_visited }}\nInterests: {{ $json.interests }}\nDays Since Signup: {{ Math.floor((new Date() - new Date($json.signup_date)) / (1000*60*60*24)) }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "json_object"
+        }
+      },
+      "id": "i9j0k1l2-3333-4444-8888-000000000003",
+      "name": "OpenAI: Generate Personalized Content",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [680, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// پردازش خروجی AI و آماده‌سازی برای ارسال\nconst userData = $node['PostgreSQL: Fetch Inactive Users'].json;\nconst aiContent = JSON.parse($node['OpenAI: Generate Personalized Content'].json.content);\n\nreturn [{\n  json: {\n    user_id: userData.user_id,\n    name: userData.name,\n    email: userData.email,\n    phone: userData.phone,\n    subject: aiContent.subject,\n    email_body: aiContent.email_body,\n    tone: aiContent.tone,\n    campaign_step: 'email_sent',\n    email_sent_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "i9j0k1l2-4444-4444-8888-000000000004",
+      "name": "Code: Process AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "Hi {{ $json.name }},\n\n{{ $json.email_body }}\n\nBest regards,\nThe Team",
+        "options": {}
+      },
+      "id": "i9j0k1l2-5555-4444-8888-000000000005",
+      "name": "Gmail: Send Personalized Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1120, 400],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "9",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users SET campaign_status = 'email_sent', email_sent_at = NOW() WHERE user_id = '{{ $json.user_id }}';",
+        "options": {}
+      },
+      "id": "i9j0k1l2-6666-4444-8888-000000000006",
+      "name": "PostgreSQL: Update Campaign Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 48,
+        "unit": "hours"
+      },
+      "id": "i9j0k1l2-7777-4444-8888-000000000007",
+      "name": "Wait 48 Hours",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, name, email, phone FROM users WHERE user_id = '{{ $json.user_id }}' AND campaign_status = 'email_sent' AND email_opened = false AND email_clicked = false;",
+        "options": {}
+      },
+      "id": "i9j0k1l2-8888-4444-8888-000000000008",
+      "name": "PostgreSQL: Check Engagement",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1780, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.user_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "i9j0k1l2-9999-4444-8888-000000000009",
+      "name": "IF: No Engagement",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 400]
+    },
+    {
+      "parameters": {
+        "fromNumber": "+1234567890",
+        "toNumber": "={{ $json.phone }}",
+        "message": "Hi {{ $json.name }}! Just a quick reminder about your account. We'd love to help you get started. Reply YES to chat with us or visit: https://example.com/start",
+        "options": {}
+      },
+      "id": "i9j0k1l2-0000-4444-8888-000000000010",
+      "name": "Twilio: Send SMS Reminder",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [2220, 320],
+      "credentials": {
+        "twilioApi": {
+          "id": "7",
+          "name": "Twilio account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users SET campaign_status = 'sms_sent', sms_sent_at = NOW() WHERE user_id = '{{ $json.user_id }}';",
+        "options": {}
+      },
+      "id": "i9j0k1l2-1111-4444-8888-000000000011",
+      "name": "PostgreSQL: Update to SMS Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2440, 320],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "days"
+      },
+      "id": "i9j0k1l2-2222-4444-8888-000000000012",
+      "name": "Wait 5 Days",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [2660, 320]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, name, email, phone, job_title, interests FROM users WHERE user_id = '{{ $json.user_id }}' AND campaign_status = 'sms_sent' AND has_purchased = false;",
+        "options": {}
+      },
+      "id": "i9j0k1l2-3333-4444-8888-000000000013",
+      "name": "PostgreSQL: Final Check",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2880, 320],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE users SET campaign_status = 'sales_qualified', sales_qualified_at = NOW() WHERE user_id = '{{ $json.user_id }}';",
+        "options": {}
+      },
+      "id": "i9j0k1l2-4444-4444-8888-000000000014",
+      "name": "PostgreSQL: Mark as SQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [3100, 320],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C4444555566",
+          "mode": "list",
+          "cachedResultName": "sales-team-leads"
+        },
+        "text": "🔥 *HOT LEAD READY FOR OUTREACH* 🔥\n\n👤 *Name:* {{ $json.name }}\n💼 *Job Title:* {{ $json.job_title }}\n📧 *Email:* {{ $json.email }}\n📱 *Phone:* {{ $json.phone }}\n🎯 *Interests:* {{ $json.interests }}\n\n📊 *Campaign Status:* No response after Email + SMS (5+ days)\n\n⚡ *Action Required:* Personal phone call recommended within 24 hours.",
+        "otherOptions": {}
+      },
+      "id": "i9j0k1l2-5555-4444-8888-000000000015",
+      "name": "Slack: Alert Sales Team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [3320, 320],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Fetch Inactive Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Fetch Inactive Users": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Generate Personalized Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Generate Personalized Content": {
+      "main": [
+        [
+          {
+            "node": "Code: Process AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Process AI Output": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Send Personalized Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail: Send Personalized Email": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Update Campaign Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Update Campaign Status": {
+      "main": [
+        [
+          {
+            "node": "Wait 48 Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 48 Hours": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Check Engagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Check Engagement": {
+      "main": [
+        [
+          {
+            "node": "IF: No Engagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: No Engagement": {
+      "main": [
+        [
+          {
+            "node": "Twilio: Send SMS Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Twilio: Send SMS Reminder": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Update to SMS Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Update to SMS Sent": {
+      "main": [
+        [
+          {
+            "node": "Wait 5 Days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5 Days": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Final Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Final Check": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: Mark as SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: Mark as SQL": {
+      "main": [
+        [
+          {
+            "node": "Slack: Alert Sales Team",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "29-ai-hyper-personalized-multi-channel-marketing",
+  "tags": []
+}
