@@ -1,0 +1,319 @@
+{
+  "name": "30-ai-rag-automated-proposal-contract-generation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rfp-submission",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "j0k1l2m3-1111-4444-8888-000000000001",
+      "name": "Webhook: Receive RFP",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 400],
+      "webhookId": "rfp-submission-webhook-30"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT proposal_template, pricing_tier, case_study FROM knowledge_base WHERE industry = '{{ $json.industry }}' AND service_type = '{{ $json.service_type }}' LIMIT 1;",
+        "options": {}
+      },
+      "id": "j0k1l2m3-2222-4444-8888-000000000002",
+      "name": "PostgreSQL: RAG Knowledge Base",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 400],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o",
+        "prompt": {
+          "messages": [
+            {
+              "role": "system",
+              "content": "You are an expert B2B sales proposal writer. Using the provided knowledge base data (templates, pricing, case studies), generate a comprehensive, professional proposal for the client. Include: 1) Executive Summary, 2) Proposed Solution, 3) Timeline, 4) Pricing & Investment, 5) Relevant Case Study. Use a professional, persuasive tone. Output in clean Markdown format."
+            },
+            {
+              "role": "user",
+              "content": "Client Name: {{ $json.client_name }}\nIndustry: {{ $json.industry }}\nService Needed: {{ $json.service_type }}\nBudget: {{ $json.budget }}\nSpecific Requirements: {{ $json.requirements }}\n\nKnowledge Base Data:\nTemplate: {{ $node['PostgreSQL: RAG Knowledge Base'].json.proposal_template }}\nPricing: {{ $node['PostgreSQL: RAG Knowledge Base'].json.pricing_tier }}\nCase Study: {{ $node['PostgreSQL: RAG Knowledge Base'].json.case_study }}"
+            }
+          ]
+        },
+        "options": {
+          "responseFormat": "text"
+        }
+      },
+      "id": "j0k1l2m3-3333-4444-8888-000000000003",
+      "name": "OpenAI: Generate Proposal",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.2,
+      "position": [680, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "1",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// فرمت‌دهی نهایی و آماده‌سازی برای ارسال\nconst clientData = $node['Webhook: Receive RFP'].json;\nconst proposalContent = $node['OpenAI: Generate Proposal'].json.text;\n\nreturn [{\n  json: {\n    client_name: clientData.client_name,\n    client_email: clientData.client_email,\n    proposal_markdown: proposalContent,\n    generated_at: new Date().toISOString(),\n    rfp_id: clientData.rfp_id || 'RFP-' + Date.now()\n  }\n}];"
+      },
+      "id": "j0k1l2m3-4444-4444-8888-000000000004",
+      "name": "Code: Format Proposal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "C5555666677",
+          "mode": "list",
+          "cachedResultName": "sales-proposals-review"
+        },
+        "text": "📝 *NEW PROPOSAL READY FOR REVIEW*\n\n👤 *Client:* {{ $json.client_name }}\n📧 *Email:* {{ $json.client_email }}\n🆔 *RFP ID:* {{ $json.rfp_id }}\n\n📄 *Proposal Preview:*\n```\n{{ $json.proposal_markdown.substring(0, 500) }}...\n```\n\n✅ *Approve:* {{ $node['Wait: Approval Webhook'].json.webhookUrl }}?decision=approve\n❌ *Reject:* {{ $node['Wait: Approval Webhook'].json.webhookUrl }}?decision=reject\n\n⏳ Please review and click the appropriate link above.",
+        "otherOptions": {}
+      },
+      "id": "j0k1l2m3-5555-4444-8888-000000000005",
+      "name": "Slack: Request Approval",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.2,
+      "position": [1120, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Your decision has been recorded. Thank you!",
+        "options": {
+          "webhookSuffix": "/approval-callback"
+        }
+      },
+      "id": "j0k1l2m3-6666-4444-8888-000000000006",
+      "name": "Wait: Approval Webhook",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1340, 400],
+      "webhookId": "approval-callback-webhook-30"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{ $json.query.decision }}",
+              "rightValue": "approve",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "j0k1l2m3-7777-4444-8888-000000000007",
+      "name": "IF: Check Approval",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "url": "https://api.pdfshift.io/v1/convert/pdf",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "source",
+              "value": "={{ $json.proposal_markdown }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "j0k1l2m3-8888-4444-8888-000000000008",
+      "name": "HTTP Request: Generate PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1780, 320],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "11",
+          "name": "PDFShift API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.client_email }}",
+        "subject": "Your Customized Proposal is Ready - {{ $json.client_name }}",
+        "emailType": "text",
+        "message": "Dear {{ $json.client_name }},\n\nThank you for your interest in our services. Please find attached your customized proposal based on your specific requirements.\n\nWe look forward to the possibility of working together.\n\nBest regards,\nThe Sales Team",
+        "options": {}
+      },
+      "id": "j0k1l2m3-9999-4444-8888-000000000009",
+      "name": "Gmail: Send to Client",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [2000, 320],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "9",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO proposal_decisions (rfp_id, client_name, decision, decided_at) VALUES ('{{ $json.rfp_id }}', '{{ $json.client_name }}', '{{ $json.query.decision }}', NOW());",
+        "options": {}
+      },
+      "id": "j0k1l2m3-0000-4444-8888-000000000010",
+      "name": "PostgreSQL: Log Decision",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1780, 480],
+      "credentials": {
+        "postgres": {
+          "id": "4",
+          "name": "PostgreSQL account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Receive RFP": {
+      "main": [
+        [
+          {
+            "node": "PostgreSQL: RAG Knowledge Base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PostgreSQL: RAG Knowledge Base": {
+      "main": [
+        [
+          {
+            "node": "OpenAI: Generate Proposal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI: Generate Proposal": {
+      "main": [
+        [
+          {
+            "node": "Code: Format Proposal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code: Format Proposal": {
+      "main": [
+        [
+          {
+            "node": "Wait: Approval Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait: Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Slack: Request Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack: Request Approval": {
+      "main": [
+        [
+          {
+            "node": "IF: Check Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Check Approval": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Generate PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PostgreSQL: Log Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request: Generate PDF": {
+      "main": [
+        [
+          {
+            "node": "Gmail: Send to Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "id": "30-ai-rag-automated-proposal-contract-generation",
+  "tags": []
+}
